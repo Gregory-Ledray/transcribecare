@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.transcribecare.app.viewmodel.SettingsViewModel
 
 /**
@@ -41,19 +42,10 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel) {
         // Screen title
         Text(
             text = "Settings",
-            style = MaterialTheme.typography.headlineMedium,
+            fontSize = 32.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(bottom = 24.dp)
-        )
-
-        // Accessibility section header
-        Text(
-            text = "Accessibility",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 16.dp)
         )
 
         // Large Text Mode toggle
@@ -73,7 +65,7 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Large Text Mode",
-                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -82,17 +74,19 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel) {
 
                 Text(
                     text = "Increases transcript text to a minimum of 36sp for improved readability",
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 18.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                 )
             }
 
-            Switch(
-                checked = largeTextMode,
-                onCheckedChange = { settingsViewModel.toggleLargeTextMode() },
-                modifier = Modifier
-                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-            )
+            Column(Modifier.padding(start = 3.dp)) {
+                Switch(
+                    checked = largeTextMode,
+                    onCheckedChange = { settingsViewModel.toggleLargeTextMode() },
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                )
+            }
         }
     }
 }
