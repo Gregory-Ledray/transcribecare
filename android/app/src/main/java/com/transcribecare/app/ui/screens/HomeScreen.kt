@@ -69,7 +69,7 @@ import com.transcribecare.app.viewmodel.SettingsViewModel
 @Composable
 fun HomeScreen(
     homeViewModel: HomeViewModel,
-    settingsViewModel: SettingsViewModel
+    settingsViewModel: SettingsViewModel,
 ) {
     val isRecording by homeViewModel.isRecording.collectAsState()
     val segments by homeViewModel.segments.collectAsState()
@@ -81,13 +81,11 @@ fun HomeScreen(
     // Permission state management
     var showRationaleDialog by remember { mutableStateOf(false) }
     var showDeniedDialog by remember { mutableStateOf(false) }
-    var permissionGranted by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            permissionGranted = true
             homeViewModel.startRecording()
         } else {
             showDeniedDialog = true
@@ -112,10 +110,10 @@ fun HomeScreen(
             // Recording control button
             RecordingButton(
                 isRecording = isRecording,
-                onClick = {
-                    if (isRecording) {
-                        homeViewModel.stopRecording()
-                    } else {
+            ) {
+                if (isRecording) {
+                    homeViewModel.stopRecording()
+                } else {
                         // Permission flow: check -> rationale -> request -> handle denial
                         val activity = context as? android.app.Activity
                         if (activity != null) {
@@ -125,7 +123,6 @@ fun HomeScreen(
                             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
                             if (hasPermission) {
-                                permissionGranted = true
                                 homeViewModel.startRecording()
                             } else if (androidx.core.app.ActivityCompat.shouldShowRequestPermissionRationale(
                                     activity,
@@ -141,7 +138,6 @@ fun HomeScreen(
                         }
                     }
                 }
-            )
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -307,7 +303,6 @@ fun TranscriptDisplay(
             TranscriptSegmentItem(
                 segment = segment,
                 fontSize = baseFontSize,
-                largeTextMode = largeTextMode
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -343,7 +338,6 @@ fun TranscriptDisplay(
 fun TranscriptSegmentItem(
     segment: TranscriptSegment,
     fontSize: androidx.compose.ui.unit.TextUnit,
-    largeTextMode: Boolean
 ) {
     val textColor = when (segment.type) {
         SegmentType.CURRENT -> MaterialTheme.colorScheme.primary

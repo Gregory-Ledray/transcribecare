@@ -46,7 +46,7 @@ import com.transcribecare.app.viewmodel.SettingsViewModel
 fun SessionDetailScreen(
     session: RecordingSession,
     settingsViewModel: SettingsViewModel,
-    onShareClick: () -> Unit
+    onShareClick: () -> Unit,
 ) {
     val largeTextMode by settingsViewModel.largeTextMode.collectAsState()
 
@@ -183,7 +183,6 @@ private fun SessionTranscriptList(
             DetailTranscriptSegmentItem(
                 segment = segment,
                 fontSize = segmentFontSize,
-                largeTextMode = largeTextMode
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -201,7 +200,6 @@ private fun SessionTranscriptList(
 private fun DetailTranscriptSegmentItem(
     segment: TranscriptSegment,
     fontSize: androidx.compose.ui.unit.TextUnit,
-    largeTextMode: Boolean
 ) {
     val textColor = when (segment.type) {
         SegmentType.CURRENT -> MaterialTheme.colorScheme.primary

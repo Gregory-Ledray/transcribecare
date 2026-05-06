@@ -36,7 +36,7 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
+            .padding(16.dp),
     ) {
         // Screen title
         Text(

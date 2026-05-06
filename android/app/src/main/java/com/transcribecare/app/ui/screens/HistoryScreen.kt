@@ -71,11 +71,10 @@ fun HistoryScreen(
     onSessionClick: (String) -> Unit = {},
     onShareClick: (RecordingSession) -> Unit = {},
     onPlayPauseClick: () -> Unit = {},
-    onSpeedChange: (Float) -> Unit = {}
+    onSpeedChange: (Float) -> Unit = {},
 ) {
     val searchQuery by viewModel.searchQuery.collectAsState()
     val filteredSessions by viewModel.filteredSessions.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
 
     Column(
         modifier = Modifier
@@ -86,8 +85,7 @@ fun HistoryScreen(
         // Search bar
         SearchBar(
             query = searchQuery,
-            onQueryChange = { viewModel.search(it) }
-        )
+        ) { viewModel.search(it) }
 
         Spacer(modifier = Modifier.height(12.dp))
 
