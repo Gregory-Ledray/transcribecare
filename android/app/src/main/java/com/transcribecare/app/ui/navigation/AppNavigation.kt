@@ -3,8 +3,8 @@ package com.transcribecare.app.ui.navigation
 import android.content.Intent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +54,7 @@ object Routes {
  */
 sealed class BottomNavTab(val route: String, val label: String, val icon: ImageVector) {
     data object Home : BottomNavTab(Routes.HOME, "Home", Icons.Filled.Home)
-    data object History : BottomNavTab(Routes.HISTORY, "History", Icons.AutoMirrored.Filled.List)
+    data object History : BottomNavTab(Routes.HISTORY, "History", Icons.Filled.History)
     data object Settings : BottomNavTab(Routes.SETTINGS, "Settings", Icons.Filled.Settings)
 }
 
