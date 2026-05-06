@@ -495,63 +495,74 @@ export default function App() {
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
+    if (!SpeechRecognition) {
+      alert("Speech Recognition API not available in this browser.");
+      return;
+    }
 
-      recognition.onresult = (event: any) => {
-        let finalTranscript = "";
-        let currentInterim = "";
+    // Abort any previously-created instance (handles StrictMode double-mount)
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch (_) {}
+    }
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            currentInterim += event.results[i][0].transcript;
-          }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event: any) => {
+      let finalTranscript = "";
+      let currentInterim = "";
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          currentInterim += event.results[i][0].transcript;
         }
+      }
 
-        if (finalTranscript) {
-          setSegments(prev => {
-            const processed = prev.map(s => s.type === 'current' ? { ...s, type: 'recent' as const } : s);
-            return [...processed, {
-              id: Date.now().toString(),
-              text: finalTranscript.trim(),
-              type: 'current' as const
-            }];
-          });
-        }
-        setInterimText(currentInterim);
-      };
+      if (finalTranscript) {
+        setSegments(prev => {
+          const processed = prev.map(s => s.type === 'current' ? { ...s, type: 'recent' as const } : s);
+          return [...processed, {
+            id: Date.now().toString(),
+            text: finalTranscript.trim(),
+            type: 'current' as const
+          }];
+        });
+      }
+      setInterimText(currentInterim);
+    };
 
-      recognition.onerror = (event: any) => {
-        console.error("Speech Recognition Error:", event.error);
+    recognition.onerror = (event: any) => {
+      console.error("Speech Recognition Error:", event.error);
+      // Only reset recording state for fatal errors, not transient ones like 'no-speech'
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
         setIsRecording(false);
         isRecordingIntentRef.current = false;
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop();
         }
-      };
+      }
+    };
 
-      recognition.onend = () => {
-        if (isRecordingIntentRef.current) {
-          try {
-            recognition.start();
-          } catch (e) {
-            console.error("Error restarting recognition:", e);
-          }
+    recognition.onend = () => {
+      if (isRecordingIntentRef.current) {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error("Error restarting recognition:", e);
         }
-      };
+      }
+    };
 
-      recognitionRef.current = recognition;
-    }
+    recognitionRef.current = recognition;
 
     return () => {
+      isRecordingIntentRef.current = false;
       if (recognitionRef.current) {
-        isRecordingIntentRef.current = false;
-        recognitionRef.current.stop();
+        try { recognitionRef.current.abort(); } catch (_) {}
       }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
@@ -593,6 +604,9 @@ export default function App() {
       setIsRecording(false);
     } else {
       try {
+        // Abort any lingering recognition before starting fresh
+        try { recognitionRef.current.abort(); } catch (_) {}
+
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
         audioChunksRef.current = [];
