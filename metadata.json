@@ -1,0 +1,6 @@
+{
+  "name": "TranscribeCare",
+  "description": "A high-contrast, accessible healthcare transcription assistant designed for clarity and reliability during medical visits.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": []
+}
