@@ -1,11 +1,9 @@
 package com.transcribecare.app
 
 import com.transcribecare.app.model.RecordingSession
-import com.transcribecare.app.model.SegmentType
-import com.transcribecare.app.model.TranscriptSegment
 import com.transcribecare.app.viewmodel.HistoryViewModel
-import com.transcribecare.app.viewmodel.HomeViewModel
 import com.transcribecare.app.viewmodel.SettingsViewModel
+import io.kotest.common.ExperimentalKotest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.property.Arb
@@ -16,6 +14,17 @@ import io.kotest.property.arbitrary.enum
 import io.kotest.property.arbitrary.list
 import io.kotest.property.arbitrary.string
 import io.kotest.property.checkAll
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+enum class Tab { HOME, HISTORY, SETTINGS }
+
+sealed class StateMutation {
+    data class SetSearchQuery(val query: String) : StateMutation()
+    data class SetRecording(val isRecording: Boolean) : StateMutation()
+    data class SetLargeTextMode(val enabled: Boolean) : StateMutation()
+}
 
 /**
  * Feature: monorepo-native-apps
@@ -30,24 +39,33 @@ import io.kotest.property.checkAll
  * Since ViewModels are scoped at the navigation level and survive tab switches,
  * this test verifies that ViewModel state is not reset by any simulated tab switch operation.
  *
- * Note: HistoryViewModel now extends AndroidViewModel and requires Application context,
- * so we test the search/filter logic via the pure companion function filterSessions()
- * and use MutableStateFlow to simulate the ViewModel's search state behavior.
+ * Note: HistoryViewModel and HomeViewModel now extend AndroidViewModel and require
+ * Application context, so we test them via lightweight test doubles that simulate
+ * their state behavior.
  */
+@OptIn(ExperimentalKotest::class)
 class TabStatePreservationTest : FunSpec({
-
-    enum class Tab { HOME, HISTORY, SETTINGS }
-
-    sealed class StateMutation {
-        data class SetSearchQuery(val query: String) : StateMutation()
-        data class SetRecording(val isRecording: Boolean) : StateMutation()
-        data class SetLargeTextMode(val enabled: Boolean) : StateMutation()
-    }
 
     data class TabSwitchStep(
         val targetTab: Tab,
-        val mutation: StateMutation?
+        val mutation: StateMutation?,
     )
+
+    /**
+     * Lightweight test double that simulates HomeViewModel's recording state behavior.
+     */
+    class TestHomeState {
+        private val _isRecording = MutableStateFlow(value = false)
+        val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
+
+        fun startRecording() {
+            _isRecording.value = true
+        }
+
+        fun stopRecording() {
+            _isRecording.value = false
+        }
+    }
 
     /**
      * Lightweight test double that simulates HistoryViewModel's search state behavior
@@ -98,7 +116,7 @@ class TabStatePreservationTest : FunSpec({
     test("Property 7: Tab State Preservation - ViewModel state survives tab switches") {
         checkAll(PropTestConfig(iterations = 100), arbStepSequence) { steps ->
             // Create ViewModels (simulating navigation-scoped instances that survive tab switches)
-            val homeViewModel = HomeViewModel()
+            val homeViewModel = TestHomeState()
             val historyState = TestHistoryState()
             val settingsViewModel = SettingsViewModel()
 
@@ -150,7 +168,7 @@ class TabStatePreservationTest : FunSpec({
             Arb.list(arbTab, 3..15)
         ) { searchQuery, isRecording, largeTextMode, tabSwitches ->
             // Create ViewModels
-            val homeViewModel = HomeViewModel()
+            val homeViewModel = TestHomeState()
             val historyState = TestHistoryState()
             val settingsViewModel = SettingsViewModel()
 
