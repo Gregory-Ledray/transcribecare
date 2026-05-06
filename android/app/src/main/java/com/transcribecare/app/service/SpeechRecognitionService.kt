@@ -45,13 +45,14 @@ class SpeechRecognitionService(
     }
 
     /**
-     * Stops speech recognition and releases resources. Prevents auto-restart
-     * by clearing the recording intent flag.
+     * Stops speech recognition. Prevents auto-restart by clearing the recording
+     * intent flag. The recognizer is not destroyed immediately — it will be
+     * destroyed after delivering its final results via onResults, or on the next
+     * restartIfActive() call which will see isRecordingIntent is false.
      */
     fun stopListening() {
         isRecordingIntent = false
         speechRecognizer?.stopListening()
-        destroyRecognizer()
     }
 
     /**
@@ -199,11 +200,14 @@ class SpeechRecognitionService(
     /**
      * Restarts recognition if the user's recording intent is still active.
      * This enables continuous transcription across recognition sessions.
+     * If recording is no longer intended, destroys the recognizer to free resources.
      */
     private fun restartIfActive() {
         if (isRecordingIntent) {
             initializeRecognizer()
             speechRecognizer?.startListening(createRecognizerIntent())
+        } else {
+            destroyRecognizer()
         }
     }
 }

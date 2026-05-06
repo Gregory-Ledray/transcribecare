@@ -66,11 +66,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             onError = { message -> _error.value = message }
         )
 
-        // Start speech recognition
-        speechRecognitionService?.startListening()
-
-        // Start audio recording
+        // Start audio recording first so MediaRecorder acquires the mic
+        // with VOICE_RECOGNITION source before SpeechRecognizer begins
         currentAudioFilePath = audioRecorderService?.startRecording(getApplication())
+
+        // Start speech recognition (shares audio via VOICE_RECOGNITION source)
+        speechRecognitionService?.startListening()
 
         // Track recording start time for duration calculation
         recordingStartTime = System.currentTimeMillis()
@@ -84,10 +85,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
      * saves the session to the Room database, and resets state for the next session.
      */
     fun stopRecording() {
-        // Stop speech recognition
+        // Stop speech recognition first — stopListening() triggers a final onResults
+        // callback before the recognizer is destroyed, allowing last segment to be captured
         speechRecognitionService?.stopListening()
 
-        // Stop audio recording
+        // Stop audio recording after speech recognition has finished
         val audioFilePath = audioRecorderService?.stopRecording() ?: currentAudioFilePath
 
         // Calculate duration
