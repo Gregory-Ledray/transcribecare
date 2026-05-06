@@ -462,13 +462,10 @@ export default function App() {
   const [isTextConnected, setIsTextConnected] = useState(false);
   const [textGroup, setTextGroup] = useState("Smith Family Chat");
   
-  const [isModelLoading, setIsModelLoading] = useState(false);
-  const [modelProgress, setModelProgress] = useState(0);
+  const recognitionRef = useRef<any>(null);
+  const isRecordingIntentRef = useRef(false);
   
-  const workerRef = useRef<Worker | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
-  
+  // Media Recorder refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
@@ -494,42 +491,71 @@ export default function App() {
     textSettingsRef.current = { connected: isTextConnected, group: textGroup };
   }, [isTextConnected, textGroup]);
 
-  // Initialize Transcription Worker
+  // Initialize Speech Recognition once
   useEffect(() => {
-    const worker = new Worker(new URL('./services/transcriptionWorker.ts', import.meta.url), { type: 'module' });
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     
-    worker.onmessage = (e) => {
-      const { type, text, progress, error } = e.data;
-      if (type === 'ready') {
-        setIsModelLoading(false);
-        console.log('Ollama Gemma 4 model ready');
-      } else if (type === 'progress') {
-        setModelProgress(progress);
-      } else if (type === 'result') {
-        if (text && text.trim()) {
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        let finalTranscript = "";
+        let currentInterim = "";
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            currentInterim += event.results[i][0].transcript;
+          }
+        }
+
+        if (finalTranscript) {
           setSegments(prev => {
             const processed = prev.map(s => s.type === 'current' ? { ...s, type: 'recent' as const } : s);
             return [...processed, {
               id: Date.now().toString(),
-              text: text.trim(),
+              text: finalTranscript.trim(),
               type: 'current' as const
             }];
           });
-          setInterimText("");
         }
-      } else if (type === 'error') {
-        console.error('Transcription Error:', error);
-        alert(`Transcription error: ${error}`);
-        setIsModelLoading(false);
-      }
-    };
+        setInterimText(currentInterim);
+      };
 
-    workerRef.current = worker;
-    setIsModelLoading(true);
-    worker.postMessage({ type: 'init' });
+      recognition.onerror = (event: any) => {
+        console.error("Speech Recognition Error:", event.error);
+        setIsRecording(false);
+        isRecordingIntentRef.current = false;
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      };
+
+      recognition.onend = () => {
+        if (isRecordingIntentRef.current) {
+          try {
+            recognition.start();
+          } catch (e) {
+            console.error("Error restarting recognition:", e);
+          }
+        }
+      };
+
+      recognitionRef.current = recognition;
+    }
 
     return () => {
-      worker.terminate();
+      if (recognitionRef.current) {
+        isRecordingIntentRef.current = false;
+        recognitionRef.current.stop();
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, []);
 
@@ -551,15 +577,14 @@ export default function App() {
 
   // Handle start/stop
   const handleToggleRecording = async () => {
+    if (!recognitionRef.current) {
+      alert("Speech recognition is not supported in this browser.");
+      return;
+    }
+
     if (isRecording) {
-      if (processorRef.current) {
-        processorRef.current.disconnect();
-        processorRef.current = null;
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
+      isRecordingIntentRef.current = false;
+      recognitionRef.current.stop();
       
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
@@ -567,52 +592,8 @@ export default function App() {
       
       setIsRecording(false);
     } else {
-      if (isModelLoading) {
-        alert("Please wait for the Gemma 4 transcription model to finish downloading and caching.");
-        return;
-      }
-
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
-        // Setup AudioContext for raw transcription data
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-        const source = audioContext.createMediaStreamSource(stream);
-        const processor = audioContext.createScriptProcessor(16384, 1, 1); // Large buffer for stable transcription
-        
-        let audioBuffer: Float32Array[] = [];
-        let samplesCollected = 0;
-        const SAMPLES_PER_TRANSCRIBE = 16000 * 3; // Transcribe every 3 seconds
-
-        processor.onaudioprocess = (e) => {
-          const inputData = e.inputBuffer.getChannelData(0);
-          audioBuffer.push(new Float32Array(inputData));
-          samplesCollected += inputData.length;
-
-          if (samplesCollected >= SAMPLES_PER_TRANSCRIBE) {
-            const fullBuffer = new Float32Array(samplesCollected);
-            let offset = 0;
-            for (const buf of audioBuffer) {
-              fullBuffer.set(buf, offset);
-              offset += buf.length;
-            }
-            
-            if (workerRef.current) {
-              workerRef.current.postMessage({ type: 'transcribe', audioData: fullBuffer });
-            }
-            
-            audioBuffer = [];
-            samplesCollected = 0;
-          }
-        };
-
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-        
-        audioContextRef.current = audioContext;
-        processorRef.current = processor;
-
-        // Standard MediaRecorder for saving session
         const mediaRecorder = new MediaRecorder(stream);
         audioChunksRef.current = [];
         
@@ -631,9 +612,36 @@ export default function App() {
           const secs = Math.floor((durationMs % 60000) / 1000);
           const formattedDuration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 
+          // Pull segments from ref to avoid stale closure
           const currentSessionSegments = segmentsRef.current.filter(s => s.type !== 'past');
+          const finalSegmentsToSave = [...currentSessionSegments];
           
-          if (currentSessionSegments.length > 0) {
+          // Add any remaining interim text if it's not already at the end of the segments
+          const trimmedInterim = interimRef.current.trim();
+          const lastSavedSegment = finalSegmentsToSave.length > 0 ? finalSegmentsToSave[finalSegmentsToSave.length - 1] : null;
+
+          if (trimmedInterim && (!lastSavedSegment || lastSavedSegment.text !== trimmedInterim)) {
+            finalSegmentsToSave.push({
+              id: `final-interim-${Date.now()}`,
+              text: trimmedInterim,
+              type: 'current'
+            });
+
+            // Finalize the segments on the home page too, with deduplication
+            setSegments(prev => {
+              const last = prev.length > 0 ? prev[prev.length - 1] : null;
+              if (trimmedInterim && (!last || last.text !== trimmedInterim)) {
+                return [...prev, {
+                  id: `final-interim-${Date.now()}`,
+                  text: trimmedInterim,
+                  type: 'current'
+                }];
+              }
+              return prev;
+            });
+          }
+
+          if (finalSegmentsToSave.length > 0) {
             const now = new Date();
             const newSession: RecordingSession = {
               id: Date.now().toString(),
@@ -642,12 +650,32 @@ export default function App() {
               time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
               duration: formattedDuration,
               audioUrl: audioUrl,
-              segments: currentSessionSegments,
+              segments: finalSegmentsToSave,
               statusLabel: 'TODAY',
             };
             
             setSessions(prev => [newSession, ...prev]);
+            
+            // Clear interim on stop
             setInterimText("");
+
+            // Mock WhatsApp Integration sending
+            const waSettings = whatsappSettingsRef.current;
+            if (waSettings.connected) {
+              const fullText = finalSegmentsToSave.map(s => s.text).join(" ");
+              setTimeout(() => {
+                alert(`[WhatsApp Integration]\n\nSuccessfully synced to '${waSettings.group}':\n\n"${fullText}"`);
+              }, 500);
+            }
+
+            // Mock Text Message Integration sending
+            const tSettings = textSettingsRef.current;
+            if (tSettings.connected) {
+              const fullText = finalSegmentsToSave.map(s => s.text).join(" ");
+              setTimeout(() => {
+                alert(`[Text Message Integration]\n\nSuccessfully sent to '${tSettings.group}':\n\n"${fullText}"`);
+              }, 1000); // Slightly staggered alert for multiple integrations
+            }
           }
           
           stream.getTracks().forEach(track => track.stop());
@@ -657,11 +685,13 @@ export default function App() {
         startTimeRef.current = Date.now();
         mediaRecorder.start();
 
+        isRecordingIntentRef.current = true;
         setSegments(prev => prev.filter(s => s.type !== 'past').map(s => ({ ...s, type: 'past' as const })));
+        recognitionRef.current.start();
         setIsRecording(true);
       } catch (e) {
-        console.error("Error starting Gemma 4 recording:", e);
-        alert("Could not access microphone or initialize Gemma 4. Please check permissions.");
+        console.error("Error starting recording:", e);
+        alert("Could not access microphone. Please check permissions.");
       }
     }
   };
@@ -678,20 +708,6 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header onSettingsClick={() => setActiveTab('settings')} />
-      {isModelLoading && (
-        <div className="fixed top-[56px] left-0 w-full z-50 bg-primary-container px-container-margin py-2 text-on-primary-container text-center text-sm font-bold flex flex-col gap-1">
-          <div className="flex items-center justify-center gap-2">
-            <RefreshCw size={16} className="animate-spin" />
-            <span>Ollama gemma4:e2b model active...</span>
-          </div>
-          <div className="w-full h-1 bg-outline-variant rounded-full overflow-hidden">
-             <motion.div 
-               animate={{ width: `${modelProgress}%` }}
-               className="h-full bg-secondary"
-             />
-          </div>
-        </div>
-      )}
       {isRecording && <RecordingStatus />}
       
       {activeTab === 'home' && (
@@ -720,44 +736,6 @@ export default function App() {
       {activeTab === 'settings' && (
         <main className={`flex-1 ${isRecording ? 'mt-[96px]' : 'mt-[56px]'} mb-[80px] p-container-margin animate-in fade-in duration-300`}>
           <div className="max-w-3xl mx-auto space-y-12">
-            <div>
-              <h2 className="text-[28px] font-bold text-primary mb-4">Transcription Model</h2>
-              <div className="bg-white p-6 rounded-xl border border-outline-variant shadow-sm space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-bold text-on-surface">Ollama: gemma4:e2b</label>
-                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${isModelLoading ? 'bg-secondary-container text-on-secondary' : 'bg-primary-container text-on-primary'}`}>
-                      {isModelLoading ? 'Updating' : 'Active'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-on-surface-variant mb-2 leading-relaxed">
-                    Local transcription is powered by Ollama. Ensure you have Ollama running locally at <code className="bg-surface-container px-1 rounded">http://localhost:11434</code> and have run <code className="bg-surface-container px-1 rounded">ollama pull gemma4:e2b</code>.
-                  </p>
-                  <div className="bg-surface-container p-3 rounded-lg border border-outline-variant space-y-2">
-                    <p className="text-[10px] font-bold text-on-surface uppercase tracking-wider">Troubleshooting "Failed to fetch"</p>
-                    <p className="text-[11px] text-on-surface-variant">
-                      Ollama blocks browser connections by default. To fix this, you must run it with CORS enabled:
-                    </p>
-                    <div className="bg-on-surface/5 p-2 rounded font-mono text-[10px] space-y-1">
-                       <div className="text-on-surface-variant italic"># macOS / Linux</div>
-                       <div className="text-primary">OLLAMA_ORIGINS="*" ollama serve</div>
-                       <div className="text-on-surface-variant italic mt-1"># Windows (PowerShell)</div>
-                       <div className="text-primary">$env:OLLAMA_ORIGINS="*"; ollama serve</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-primary font-bold text-xs bg-primary-container/20 p-3 rounded-lg">
-                  <motion.div 
-                    animate={isModelLoading ? { rotate: 360 } : {}} 
-                    transition={isModelLoading ? { repeat: Infinity, duration: 2, ease: "linear" } : {}}
-                  >
-                    <RefreshCw size={14} />
-                  </motion.div>
-                  <span>{isModelLoading ? 'Connecting to local Ollama instance...' : 'Connected to Ollama (gemma4:e2b).'}</span>
-                </div>
-              </div>
-            </div>
-
             <div>
               <h2 className="text-[28px] font-bold text-primary mb-4">Accessibility</h2>
               <div className="flex flex-col gap-2">
