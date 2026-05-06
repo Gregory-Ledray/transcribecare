@@ -39,39 +39,43 @@ struct ContentView: View {
     // MARK: - Body
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            HomeView(
-                viewModel: resolvedHomeViewModel,
-                largeTextMode: settingsViewModel.largeTextMode
-            )
-            .tabItem {
-                Label("Home", systemImage: "house.fill")
-            }
-            .tag(Tab.home)
-
-            HistoryView(
-                viewModel: historyViewModel,
-                playerService: audioPlayerService
-            )
-            .tabItem {
-                Label("History", systemImage: "clock.fill")
-            }
-            .tag(Tab.history)
-
-            SettingsView(viewModel: settingsViewModel)
+        if #available(iOS 17.0, *) {
+            TabView(selection: $selectedTab) {
+                HomeView(
+                    viewModel: resolvedHomeViewModel,
+                    largeTextMode: settingsViewModel.largeTextMode
+                )
                 .tabItem {
-                    Label("Settings", systemImage: "gearshape.fill")
+                    Label("Home", systemImage: "house.fill")
                 }
-                .tag(Tab.settings)
-        }
-        .tint(Color("Primary"))
-        .onChange(of: selectedTab) {
-            if selectedTab == .history {
+                .tag(Tab.home)
+                
+                HistoryView(
+                    viewModel: historyViewModel,
+                    playerService: audioPlayerService
+                )
+                .tabItem {
+                    Label("History", systemImage: "clock.fill")
+                }
+                .tag(Tab.history)
+                
+                SettingsView(viewModel: settingsViewModel)
+                    .tabItem {
+                        Label("Settings", systemImage: "gearshape.fill")
+                    }
+                    .tag(Tab.settings)
+            }
+            .tint(Color("Primary"))
+            .onChange(of: selectedTab) {
+                if selectedTab == .history {
+                    loadHistorySessions()
+                }
+            }
+            .onAppear {
                 loadHistorySessions()
             }
-        }
-        .onAppear {
-            loadHistorySessions()
+        } else {
+            // Fallback on earlier versions
         }
     }
 
