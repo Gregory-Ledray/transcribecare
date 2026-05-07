@@ -9,8 +9,9 @@ import com.transcribecare.app.data.entity.SessionEntity
 import com.transcribecare.app.model.RecordingSession
 import com.transcribecare.app.model.SegmentType
 import com.transcribecare.app.model.TranscriptSegment
-import com.transcribecare.app.service.AudioRecorderService
-import com.transcribecare.app.service.SpeechRecognitionService
+import com.transcribecare.app.service.FileRecordingConsumer
+import com.transcribecare.app.service.SpeechRecognitionConsumer
+import com.transcribecare.app.service.UnifiedAudioCaptureService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,6 +24,9 @@ import java.util.UUID
 /**
  * ViewModel for the Home screen managing recording state, transcript segments,
  * speech recognition, audio recording, and session persistence.
+ *
+ * Uses [UnifiedAudioCaptureService] to coordinate a single microphone owner
+ * with fan-out to [SpeechRecognitionConsumer] and [FileRecordingConsumer].
  */
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -40,38 +44,49 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database: AppDatabase = AppDatabase.getInstance(application)
 
-    private var speechRecognitionService: SpeechRecognitionService? = null
-    private var audioRecorderService: AudioRecorderService? = null
+    private var captureService: UnifiedAudioCaptureService? = null
+    private var speechConsumer: SpeechRecognitionConsumer? = null
+    private var fileConsumer: FileRecordingConsumer? = null
 
     private var recordingStartTime: Long = 0L
-    private var currentAudioFilePath: String? = null
 
     /**
-     * Starts recording. Creates speech recognition and audio recorder services,
-     * begins speech recognition and audio capture.
+     * Starts recording. Creates a [UnifiedAudioCaptureService], registers both
+     * [SpeechRecognitionConsumer] and [FileRecordingConsumer], and begins capture.
      */
     fun startRecording() {
         _error.value = null
 
-        // Create SpeechRecognitionService with callbacks
-        speechRecognitionService = SpeechRecognitionService(
+        // Create UnifiedAudioCaptureService with error callback
+        val service = UnifiedAudioCaptureService(
+            onError = { message -> _error.value = message }
+        )
+
+        // Create SpeechRecognitionConsumer with partial/final/error callbacks
+        val speech = SpeechRecognitionConsumer(
             context = getApplication(),
             onPartialResult = { interimText -> onInterimResult(interimText) },
             onFinalResult = { text -> onFinalResult(text) },
             onError = { message -> _error.value = message }
         )
 
-        // Create AudioRecorderService with error callback
-        audioRecorderService = AudioRecorderService(
+        // Create FileRecordingConsumer with error callback
+        val file = FileRecordingConsumer(
+            context = getApplication(),
             onError = { message -> _error.value = message }
         )
 
-        // Start audio recording first so MediaRecorder acquires the mic
-        // with VOICE_RECOGNITION source before SpeechRecognizer begins
-        currentAudioFilePath = audioRecorderService?.startRecording(getApplication())
+        // Register both consumers
+        service.registerConsumer(speech)
+        service.registerConsumer(file)
 
-        // Start speech recognition (shares audio via VOICE_RECOGNITION source)
-        speechRecognitionService?.startListening()
+        // Start unified capture
+        service.startCapture()
+
+        // Store references
+        captureService = service
+        speechConsumer = speech
+        fileConsumer = file
 
         // Track recording start time for duration calculation
         recordingStartTime = System.currentTimeMillis()
@@ -80,17 +95,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Stops recording. Stops speech recognition and audio capture,
-     * creates a RecordingSession from the current segments and audio file path,
-     * saves the session to the Room database, and resets state for the next session.
+     * Stops recording. Calls [UnifiedAudioCaptureService.stopCapture] which stops
+     * the background thread and releases all consumers, then retrieves the file path
+     * from [FileRecordingConsumer] and saves the session.
      */
     fun stopRecording() {
-        // Stop speech recognition first — stopListening() triggers a final onResults
-        // callback before the recognizer is destroyed, allowing last segment to be captured
-        speechRecognitionService?.stopListening()
+        // Stop unified capture (stops thread, calls release() on consumers)
+        captureService?.stopCapture()
 
-        // Stop audio recording after speech recognition has finished
-        val audioFilePath = audioRecorderService?.stopRecording() ?: currentAudioFilePath
+        // Retrieve the audio file path from the file consumer
+        val audioFilePath = fileConsumer?.getOutputFilePath()
 
         // Calculate duration
         val durationMs = System.currentTimeMillis() - recordingStartTime
@@ -107,7 +121,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _segments.value = emptyList()
         _interimText.value = ""
         _isRecording.value = false
-        currentAudioFilePath = null
+
+        // Clear service references
+        captureService = null
+        speechConsumer = null
+        fileConsumer = null
     }
 
     /**
@@ -208,10 +226,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        speechRecognitionService?.destroy()
-        audioRecorderService?.release()
-        speechRecognitionService = null
-        audioRecorderService = null
+        captureService?.destroy()
+        captureService = null
+        speechConsumer = null
+        fileConsumer = null
     }
 
     companion object {
