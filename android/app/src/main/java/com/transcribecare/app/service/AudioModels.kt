@@ -13,8 +13,8 @@ package com.transcribecare.app.service
  * @property dataSize Total size of the PCM data section in bytes. Zero until finalized.
  */
 data class WavHeader(
-    val sampleRate: Int = 44100,
-    val channelCount: Int = 1,
+    val sampleRate: Int = AudioConfig.SAMPLE_RATE,
+    val channelCount: Int = AudioConfig.CHANNEL_COUNT,
     val bitsPerSample: Int = 16,
     val dataSize: Int = 0
 ) {
