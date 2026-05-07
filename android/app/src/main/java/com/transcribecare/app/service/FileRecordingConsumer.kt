@@ -97,9 +97,10 @@ class FileRecordingConsumer(
         try {
             val byteBuffer = ByteBuffer.allocate(frameSize * 2)
             byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
-            for (i in 0 until frameSize) {
-                byteBuffer.putShort(frame[i])
-            }
+            byteBuffer.asShortBuffer().put(frame)
+//            for (i in 0 until frameSize) {
+//                byteBuffer.putShort(frame[i])
+//            }
             file.write(byteBuffer.array())
             dataSize += frameSize * 2
         } catch (e: IOException) {
