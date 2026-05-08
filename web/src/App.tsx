@@ -19,15 +19,19 @@ import {
   Link2Off,
   Link2,
   MessageSquare,
-  Share2
+  Share2,
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import React, { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { saveSession, saveAudio, loadSessions, loadAudio } from './db';
+import { useLocalTranscription } from './transcription/useLocalTranscription';
+import type { ModelLoadProgress } from './transcription/types';
 // --- Types ---
 type Tab = 'home' | 'history' | 'settings';
 
-interface TranscriptSegment {
+export interface TranscriptSegment {
   id: string;
   text: string;
   type: 'past' | 'recent' | 'current';
@@ -472,6 +476,84 @@ function TranscriptDetailView({ session, onBack, isLargeText, isRecording }: { s
   );
 }
 
+/** Overlay displayed during model download/initialization or on error. */
+function ModelLoadingOverlay({ 
+  status, 
+  loadProgress, 
+  error, 
+  onRetry 
+}: { 
+  status: 'idle' | 'loading' | 'ready' | 'recording' | 'error';
+  loadProgress: ModelLoadProgress;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  // Only show when loading or error
+  if (status !== 'loading' && status !== 'error') {
+    return null;
+  }
+
+  const isError = status === 'error';
+  const percent = Math.round(loadProgress.percent);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-surface rounded-2xl shadow-xl p-8 max-w-md w-[90%] flex flex-col items-center gap-6">
+        {isError ? (
+          <>
+            {/* Error state — announced immediately via role="alert" */}
+            <div role="alert" className="flex flex-col items-center gap-4 text-center">
+              <AlertCircle size={48} className="text-error" aria-hidden="true" />
+              <h2 className="text-xl font-bold text-on-surface">Loading Failed</h2>
+              <p className="text-base text-on-surface-variant leading-relaxed">
+                {error || 'An unexpected error occurred while loading the transcription model.'}
+              </p>
+            </div>
+            <button
+              onClick={onRetry}
+              className="min-w-[48px] min-h-[48px] px-6 py-3 rounded-xl bg-primary text-on-primary font-bold text-lg flex items-center justify-center gap-2 hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/40 transition-colors cursor-pointer"
+              aria-label="Retry loading the transcription model"
+            >
+              <RotateCcw size={20} aria-hidden="true" />
+              Retry
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Loading state — progress announced via aria-live */}
+            <div aria-live="polite" aria-atomic="true" className="flex flex-col items-center gap-4 w-full text-center">
+              <h2 className="text-xl font-bold text-on-surface">Loading Transcription Model</h2>
+              <p className="text-base text-on-surface-variant">
+                {loadProgress.phase === 'downloading' && `Downloading model... ${percent}%`}
+                {loadProgress.phase === 'validating' && 'Validating model integrity...'}
+                {loadProgress.phase === 'initializing' && 'Initializing inference engine...'}
+                {loadProgress.phase === 'ready' && 'Model ready!'}
+              </p>
+              {/* Progress bar */}
+              <div className="w-full">
+                <div
+                  role="progressbar"
+                  aria-valuenow={percent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`Model loading progress: ${percent}%`}
+                  className="w-full h-3 bg-outline-variant rounded-full overflow-hidden"
+                >
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${percent}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-sm font-bold text-on-surface">{percent}%</p>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Main App ---
 
 export default function App() {
@@ -479,16 +561,14 @@ export default function App() {
   const [viewingSession, setViewingSession] = useState<RecordingSession | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [largeTextMode, setLargeTextMode] = useState(true);
-  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
-  const [interimText, setInterimText] = useState("");
   const [sessions, setSessions] = useState<RecordingSession[]>([]);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [whatsAppGroup, setWhatsAppGroup] = useState("Smith Family Care");
   const [isTextConnected, setIsTextConnected] = useState(false);
   const [textGroup, setTextGroup] = useState("Smith Family Chat");
-  
-  const recognitionRef = useRef<any>(null);
-  const isRecordingIntentRef = useRef(false);
+
+  // Local transcription hook (replaces Web Speech API)
+  const transcription = useLocalTranscription();
   
   // Media Recorder refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -499,14 +579,14 @@ export default function App() {
   const whatsappSettingsRef = useRef({ connected: false, group: "Smith Family Care" });
   const textSettingsRef = useRef({ connected: false, group: "Smith Family Chat" });
 
-  // Keep refs in sync
+  // Keep refs in sync with transcription hook state
   useEffect(() => {
-    segmentsRef.current = segments;
-  }, [segments]);
+    segmentsRef.current = transcription.segments;
+  }, [transcription.segments]);
 
   useEffect(() => {
-    interimRef.current = interimText;
-  }, [interimText]);
+    interimRef.current = transcription.interimText;
+  }, [transcription.interimText]);
 
   useEffect(() => {
     whatsappSettingsRef.current = { connected: isWhatsAppConnected, group: whatsAppGroup };
@@ -535,83 +615,9 @@ export default function App() {
     });
   }, []);
 
-  // Initialize Speech Recognition once
+  // Initialize local transcription engine on mount
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      alert("Speech Recognition API not available in this browser.");
-      return;
-    }
-
-    // Abort any previously-created instance (handles StrictMode double-mount)
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort(); } catch (_) {}
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onresult = (event: any) => {
-      let finalTranscript = "";
-      let currentInterim = "";
-
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        } else {
-          currentInterim += event.results[i][0].transcript;
-        }
-      }
-
-      if (finalTranscript) {
-        setSegments(prev => {
-          const processed = prev.map(s => s.type === 'current' ? { ...s, type: 'recent' as const } : s);
-          return [...processed, {
-            id: Date.now().toString(),
-            text: finalTranscript.trim(),
-            type: 'current' as const
-          }];
-        });
-      }
-      setInterimText(currentInterim);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech Recognition Error:", event.error, event.message);
-      // Only reset recording state for fatal errors, not transient ones like 'no-speech'
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        setIsRecording(false);
-        isRecordingIntentRef.current = false;
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-      }
-    };
-
-    recognition.onend = () => {
-      if (isRecordingIntentRef.current) {
-        try {
-          recognition.start();
-        } catch (e) {
-          console.error("Error restarting recognition:", e);
-        }
-      }
-    };
-
-    recognitionRef.current = recognition;
-
-    return () => {
-      isRecordingIntentRef.current = false;
-      if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch (_) {}
-      }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-    };
+    transcription.initialize();
   }, []);
 
   const handleConnectWhatsApp = () => {
@@ -632,14 +638,9 @@ export default function App() {
 
   // Handle start/stop
   const handleToggleRecording = async () => {
-    if (!recognitionRef.current) {
-      alert("Speech recognition is not supported in this browser.");
-      return;
-    }
-
     if (isRecording) {
-      isRecordingIntentRef.current = false;
-      recognitionRef.current.stop();
+      // Stop transcription
+      transcription.stop();
       
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
@@ -648,12 +649,6 @@ export default function App() {
       setIsRecording(false);
     } else {
       try {
-        // Abort any lingering recognition before starting fresh
-        try { recognitionRef.current.abort(); } catch (_) {}
-
-        // Small delay to allow the browser to fully release the previous recognition session
-        await new Promise(resolve => setTimeout(resolve, 100));
-
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
         audioChunksRef.current = [];
@@ -687,19 +682,6 @@ export default function App() {
               text: trimmedInterim,
               type: 'current'
             });
-
-            // Finalize the segments on the home page too, with deduplication
-            setSegments(prev => {
-              const last = prev.length > 0 ? prev[prev.length - 1] : null;
-              if (trimmedInterim && (!last || last.text !== trimmedInterim)) {
-                return [...prev, {
-                  id: `final-interim-${Date.now()}`,
-                  text: trimmedInterim,
-                  type: 'current'
-                }];
-              }
-              return prev;
-            });
           }
 
           if (finalSegmentsToSave.length > 0) {
@@ -722,9 +704,6 @@ export default function App() {
             const { audioUrl: _url, ...sessionMetadata } = newSession;
             saveSession(sessionMetadata).catch(e => console.error('Failed to save session:', e));
             saveAudio(sessionId, audioBlob).catch(e => console.error('Failed to save audio:', e));
-            
-            // Clear interim on stop
-            setInterimText("");
 
             // Mock WhatsApp Integration sending
             const waSettings = whatsappSettingsRef.current;
@@ -741,7 +720,7 @@ export default function App() {
               const fullText = finalSegmentsToSave.map(s => s.text).join(" ");
               setTimeout(() => {
                 alert(`[Text Message Integration]\n\nSuccessfully sent to '${tSettings.group}':\n\n"${fullText}"`);
-              }, 1000); // Slightly staggered alert for multiple integrations
+              }, 1000);
             }
           }
           
@@ -752,20 +731,8 @@ export default function App() {
         startTimeRef.current = Date.now();
         mediaRecorder.start();
 
-        isRecordingIntentRef.current = true;
-        setSegments(prev => prev.filter(s => s.type !== 'past').map(s => ({ ...s, type: 'past' as const })));
-        try {
-          recognitionRef.current.start();
-        } catch (e) {
-          console.error("Error starting speech recognition:", e);
-          // If start fails, stop the media recorder and clean up
-          mediaRecorder.stop();
-          stream.getTracks().forEach(track => track.stop());
-          isRecordingIntentRef.current = false;
-          setIsRecording(false);
-          alert("Could not start speech recognition. Please try again.");
-          return;
-        }
+        // Start local transcription
+        await transcription.start();
         setIsRecording(true);
       } catch (e) {
         console.error("Error starting recording:", e);
@@ -774,11 +741,11 @@ export default function App() {
     }
   };
 
-  const displaySegments = [...segments];
-  if (interimText) {
+  const displaySegments = [...transcription.segments];
+  if (transcription.interimText) {
     displaySegments.push({
       id: 'interim',
-      text: interimText,
+      text: transcription.interimText,
       type: 'current'
     });
   }
@@ -786,6 +753,12 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header onSettingsClick={() => setActiveTab('settings')} />
+      <ModelLoadingOverlay
+        status={transcription.status}
+        loadProgress={transcription.loadProgress}
+        error={transcription.error}
+        onRetry={transcription.retry}
+      />
       {isRecording && <RecordingStatus />}
       
       {activeTab === 'home' && (
