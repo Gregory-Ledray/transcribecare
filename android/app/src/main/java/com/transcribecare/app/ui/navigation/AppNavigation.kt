@@ -148,10 +148,14 @@ fun AppNavigation() {
 
             composable(Routes.HISTORY) {
                 val audioPlayerState by historyViewModel.audioPlayerState.collectAsStateWithLifecycle()
+                val currentPlaybackSessionId by historyViewModel.currentPlaybackSessionId.collectAsStateWithLifecycle()
+                val largeTextMode by settingsViewModel.largeTextMode.collectAsStateWithLifecycle()
 
                 HistoryScreen(
                     viewModel = historyViewModel,
                     audioPlayerState = audioPlayerState,
+                    currentPlaybackSessionId = currentPlaybackSessionId,
+                    largeTextMode = largeTextMode,
                     onSessionClick = { sessionId ->
                         navController.navigate(Routes.sessionDetail(sessionId))
                     },

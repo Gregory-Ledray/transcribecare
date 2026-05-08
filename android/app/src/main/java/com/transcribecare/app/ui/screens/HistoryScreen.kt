@@ -49,26 +49,32 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.transcribecare.app.model.RecordingSession
 import com.transcribecare.app.service.AudioPlayerState
 import com.transcribecare.app.viewmodel.HistoryViewModel
 
 /**
- * History screen composable displaying a searchable, scrollable list of recording sessions
- * with audio playback controls and sharing capabilities.
+ * History screen composable displaying a searchable, scrollable list of recording sessions.
+ * Each session card contains integrated playback controls (play/pause toggle, progress bar,
+ * and speed selector) rather than a separate playback panel.
  *
  * @param viewModel ViewModel managing session list, search filtering, and playback state.
  * @param audioPlayerState Observable state of the audio player (position, duration, speed, playing).
- * @param onSessionClick Callback invoked when a session card is tapped, passing the session ID.
+ * @param currentPlaybackSessionId The ID of the session currently being played, or null.
+ * @param largeTextMode Whether large text mode is enabled for accessibility.
+ * @param onSessionClick Callback invoked when "View Transcript" is tapped, passing the session ID.
  * @param onShareClick Callback invoked when the share button is tapped for a session.
- * @param onPlayPauseClick Callback invoked when the play/pause button is tapped.
- * @param onSpeedChange Callback invoked when a new playback speed is selected.
- * @param onPlaySession Callback invoked when the play button is tapped on a session card.
+ * @param onPlayPauseClick Callback invoked when the play/pause button is tapped on the active session.
+ * @param onSpeedChange Callback invoked when a new playback speed is selected (applies globally).
+ * @param onPlaySession Callback invoked when play is tapped to start playback for a session.
  */
 @Composable
 fun HistoryScreen(
     viewModel: HistoryViewModel,
     audioPlayerState: AudioPlayerState = AudioPlayerState(),
+    currentPlaybackSessionId: String? = null,
+    largeTextMode: Boolean = false,
     onSessionClick: (String) -> Unit = {},
     onShareClick: (RecordingSession) -> Unit = {},
     onPlayPauseClick: () -> Unit = {},
@@ -87,16 +93,8 @@ fun HistoryScreen(
         // Search bar
         SearchBar(
             query = searchQuery,
+            largeTextMode = largeTextMode,
         ) { viewModel.search(it) }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Audio playback controls
-        AudioPlaybackControls(
-            audioPlayerState = audioPlayerState,
-            onPlayPauseClick = onPlayPauseClick,
-            onSpeedChange = onSpeedChange
-        )
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -110,11 +108,25 @@ fun HistoryScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(filteredSessions, key = { it.id }) { session ->
+                val isActivePlayback = currentPlaybackSessionId == session.id
+
                 SessionCard(
                     session = session,
+                    isActivePlayback = isActivePlayback,
+                    audioPlayerState = audioPlayerState,
+                    largeTextMode = largeTextMode,
                     onSessionClick = { onSessionClick(session.id) },
                     onShareClick = { onShareClick(session) },
-                    onPlayClick = { onPlaySession(session) }
+                    onPlayPauseClick = {
+                        if (isActivePlayback) {
+                            // Toggle play/pause on the already-active session
+                            onPlayPauseClick()
+                        } else {
+                            // Start playback for this session
+                            onPlaySession(session)
+                        }
+                    },
+                    onSpeedChange = onSpeedChange
                 )
             }
         }
@@ -128,8 +140,11 @@ fun HistoryScreen(
 @Composable
 private fun SearchBar(
     query: String,
+    largeTextMode: Boolean = false,
     onQueryChange: (String) -> Unit
 ) {
+    val textSize = if (largeTextMode) 24.sp else 16.sp
+
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
@@ -139,8 +154,12 @@ private fun SearchBar(
             .semantics {
                 contentDescription = "Search sessions"
             },
+        textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = textSize),
         placeholder = {
-            Text(text = "Search sessions...")
+            Text(
+                text = "Search sessions...",
+                fontSize = textSize
+            )
         },
         leadingIcon = {
             Icon(
@@ -175,158 +194,43 @@ private fun SearchBar(
 }
 
 /**
- * Audio playback controls section with play/pause button, speed selector,
- * and progress indicator.
- */
-@Composable
-private fun AudioPlaybackControls(
-    audioPlayerState: AudioPlayerState,
-    onPlayPauseClick: () -> Unit,
-    onSpeedChange: (Float) -> Unit
-) {
-    var showSpeedMenu by remember { mutableStateOf(false) }
-    val speeds = listOf(1.0f, 1.25f, 1.5f, 2.0f)
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Play/Pause button
-                IconButton(
-                    onClick = onPlayPauseClick,
-                    modifier = Modifier
-                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                        .semantics {
-                            contentDescription = if (audioPlayerState.isPlaying) {
-                                "Pause audio playback"
-                            } else {
-                                "Play audio playback"
-                            }
-                        }
-                ) {
-                    Icon(
-                        imageVector = if (audioPlayerState.isPlaying) {
-                            Icons.Default.Pause
-                        } else {
-                            Icons.Default.PlayArrow
-                        },
-                        contentDescription = null,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                // Progress text
-                Text(
-                    text = "${formatDuration(audioPlayerState.currentPosition)} / ${formatDuration(audioPlayerState.totalDuration)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.semantics {
-                        contentDescription = "Playback progress: ${formatDuration(audioPlayerState.currentPosition)} of ${formatDuration(audioPlayerState.totalDuration)}"
-                    }
-                )
-
-                // Speed selector
-                Box {
-                    TextButton(
-                        onClick = { showSpeedMenu = true },
-                        modifier = Modifier
-                            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                            .semantics {
-                                contentDescription = "Playback speed: ${formatSpeed(audioPlayerState.currentSpeed)}. Tap to change."
-                            }
-                    ) {
-                        Text(
-                            text = formatSpeed(audioPlayerState.currentSpeed),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showSpeedMenu,
-                        onDismissRequest = { showSpeedMenu = false }
-                    ) {
-                        speeds.forEach { speed ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = formatSpeed(speed),
-                                        fontWeight = if (speed == audioPlayerState.currentSpeed) {
-                                            FontWeight.Bold
-                                        } else {
-                                            FontWeight.Normal
-                                        }
-                                    )
-                                },
-                                onClick = {
-                                    onSpeedChange(speed)
-                                    showSpeedMenu = false
-                                },
-                                modifier = Modifier
-                                    .sizeIn(minHeight = 48.dp)
-                                    .semantics {
-                                        contentDescription = "Set playback speed to ${formatSpeed(speed)}"
-                                    }
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Progress indicator
-            val progress = if (audioPlayerState.totalDuration > 0) {
-                audioPlayerState.currentPosition.toFloat() / audioPlayerState.totalDuration.toFloat()
-            } else {
-                0f
-            }
-
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .semantics {
-                        contentDescription = "Audio playback progress bar"
-                    },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-            )
-        }
-    }
-}
-
-/**
  * A single session card displaying title, date, time, duration, status label,
- * and contextual action buttons.
+ * and integrated playback controls.
  *
- * - Sessions with transcript segments show a "View Transcript" button that navigates to detail.
- * - Sessions without transcript segments (audio-only) show a "Play" button for playback.
- * - All sessions show a share button.
+ * The Play button toggles to Pause when this session is actively playing.
+ * Progress bar and speed selector are shown directly in the card (no inner card).
+ * Speed changes apply globally across all cards.
+ *
+ * @param session The recording session to display.
+ * @param isActivePlayback Whether this session is the one currently playing.
+ * @param audioPlayerState The current global audio player state (used for speed display on all cards).
+ * @param largeTextMode Whether large text mode is enabled for accessibility.
+ * @param onSessionClick Callback for "View Transcript" action.
+ * @param onShareClick Callback for the share button.
+ * @param onPlayPauseClick Callback to play this session or toggle pause on the active session.
+ * @param onSpeedChange Callback to change playback speed (applies globally).
  */
 @Composable
 private fun SessionCard(
     session: RecordingSession,
+    isActivePlayback: Boolean,
+    audioPlayerState: AudioPlayerState,
+    largeTextMode: Boolean = false,
     onSessionClick: () -> Unit,
     onShareClick: () -> Unit,
-    onPlayClick: () -> Unit
+    onPlayPauseClick: () -> Unit,
+    onSpeedChange: (Float) -> Unit
 ) {
     val hasTranscript = session.segments.isNotEmpty()
     val hasAudio = session.audioFilePath != null
+    val isCurrentlyPlaying = isActivePlayback && audioPlayerState.isPlaying
+
+    val titleSize = if (largeTextMode) 24.sp else 14.sp
+    val bodySize = if (largeTextMode) 20.sp else 12.sp
+    val buttonTextSize = if (largeTextMode) 20.sp else 14.sp
+    val badgeSize = if (largeTextMode) 16.sp else 11.sp
+    val controlTextSize = if (largeTextMode) 20.sp else 12.sp
+    val speedTextSize = if (largeTextMode) 20.sp else 14.sp
 
     Card(
         modifier = Modifier
@@ -345,11 +249,11 @@ private fun SessionCard(
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
+            // Header row: session info + share button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Session info
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
@@ -359,7 +263,7 @@ private fun SessionCard(
                     ) {
                         Text(
                             text = session.title,
-                            style = MaterialTheme.typography.titleSmall,
+                            fontSize = titleSize,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -369,8 +273,7 @@ private fun SessionCard(
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        // Status label badge
-                        StatusBadge(label = session.statusLabel)
+                        StatusBadge(label = session.statusLabel, fontSize = badgeSize)
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -381,17 +284,17 @@ private fun SessionCard(
                     ) {
                         Text(
                             text = session.date,
-                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = bodySize,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = session.time,
-                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = bodySize,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = session.duration,
-                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = bodySize,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -414,52 +317,167 @@ private fun SessionCard(
                 }
             }
 
+            // Progress bar (visible only when this session is actively playing)
+            if (isActivePlayback) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val progress = if (audioPlayerState.totalDuration > 0) {
+                    audioPlayerState.currentPosition.toFloat() / audioPlayerState.totalDuration.toFloat()
+                } else {
+                    0f
+                }
+
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .semantics {
+                            contentDescription = "Audio playback progress bar"
+                        },
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Progress time text
+                Text(
+                    text = "${formatDuration(audioPlayerState.currentPosition)} / ${formatDuration(audioPlayerState.totalDuration)}",
+                    fontSize = controlTextSize,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Playback progress: ${formatDuration(audioPlayerState.currentPosition)} of ${formatDuration(audioPlayerState.totalDuration)}"
+                    }
+                )
+            }
+
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Action buttons row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (hasTranscript) {
-                    // View Transcript button for sessions with segments
-                    TextButton(
-                        onClick = onSessionClick,
-                        modifier = Modifier
-                            .sizeIn(minHeight = 48.dp)
-                            .semantics {
-                                contentDescription = "View transcript for ${session.title}"
-                            }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Description,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = "View Transcript")
-                    }
+            // View Transcript button (if applicable)
+            if (hasTranscript) {
+                TextButton(
+                    onClick = onSessionClick,
+                    modifier = Modifier
+                        .sizeIn(minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "View transcript for ${session.title}"
+                        }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "View Transcript", fontSize = buttonTextSize)
                 }
+            }
 
-                if (hasAudio) {
-                    // Play button for audio playback
+            // Audio controls row: Play/Pause on left, Speed selector on right
+            if (hasAudio) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Play/Pause toggle button (left side)
                     TextButton(
-                        onClick = onPlayClick,
+                        onClick = onPlayPauseClick,
                         modifier = Modifier
                             .sizeIn(minHeight = 48.dp)
                             .semantics {
-                                contentDescription = "Play audio for ${session.title}"
+                                contentDescription = if (isCurrentlyPlaying) {
+                                    "Pause audio for ${session.title}"
+                                } else {
+                                    "Play audio for ${session.title}"
+                                }
                             }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.PlayArrow,
+                            imageVector = if (isCurrentlyPlaying) {
+                                Icons.Default.Pause
+                            } else {
+                                Icons.Default.PlayArrow
+                            },
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = "Play")
+                        Text(
+                            text = if (isCurrentlyPlaying) "Pause" else "Play",
+                            fontSize = buttonTextSize
+                        )
                     }
+
+                    // Speed selector (right side, applies globally)
+                    SpeedSelector(
+                        currentSpeed = audioPlayerState.currentSpeed,
+                        fontSize = speedTextSize,
+                        onSpeedChange = onSpeedChange
+                    )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Playback speed selector dropdown. Changing speed on any card applies globally.
+ */
+@Composable
+private fun SpeedSelector(
+    currentSpeed: Float,
+    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+    onSpeedChange: (Float) -> Unit
+) {
+    var showSpeedMenu by remember { mutableStateOf(false) }
+    val speeds = listOf(1.0f, 1.25f, 1.5f, 2.0f)
+
+    Box {
+        TextButton(
+            onClick = { showSpeedMenu = true },
+            modifier = Modifier
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .semantics {
+                    contentDescription = "Playback speed: ${formatSpeed(currentSpeed)}. Tap to change."
+                }
+        ) {
+            Text(
+                text = formatSpeed(currentSpeed),
+                fontSize = fontSize,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        DropdownMenu(
+            expanded = showSpeedMenu,
+            onDismissRequest = { showSpeedMenu = false }
+        ) {
+            speeds.forEach { speed ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = formatSpeed(speed),
+                            fontSize = fontSize,
+                            fontWeight = if (speed == currentSpeed) {
+                                FontWeight.Bold
+                            } else {
+                                FontWeight.Normal
+                            }
+                        )
+                    },
+                    onClick = {
+                        onSpeedChange(speed)
+                        showSpeedMenu = false
+                    },
+                    modifier = Modifier
+                        .sizeIn(minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "Set playback speed to ${formatSpeed(speed)}"
+                        }
+                )
             }
         }
     }
@@ -470,7 +488,7 @@ private fun SessionCard(
  * (e.g., "TODAY", "YESTERDAY", "THIS WEEK").
  */
 @Composable
-private fun StatusBadge(label: String) {
+private fun StatusBadge(label: String, fontSize: androidx.compose.ui.unit.TextUnit = 11.sp) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
@@ -479,7 +497,7 @@ private fun StatusBadge(label: String) {
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
+            fontSize = fontSize,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onPrimaryContainer
         )

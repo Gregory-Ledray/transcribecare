@@ -98,7 +98,7 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         // Recording Status Banner
-        RecordingStatusBanner(isVisible = isRecording)
+        RecordingStatusBanner(isVisible = isRecording, largeTextMode = largeTextMode)
 
         // Main content
         Column(
@@ -110,6 +110,7 @@ fun HomeScreen(
             // Recording control button
             RecordingButton(
                 isRecording = isRecording,
+                largeTextMode = largeTextMode,
             ) {
                 if (isRecording) {
                     homeViewModel.stopRecording()
@@ -180,10 +181,10 @@ fun HomeScreen(
 
 /**
  * Animated recording status banner displayed at the top of the screen
- * when recording is active.
+ * when recording is active. Supports large text mode.
  */
 @Composable
-fun RecordingStatusBanner(isVisible: Boolean) {
+fun RecordingStatusBanner(isVisible: Boolean, largeTextMode: Boolean = false) {
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn(),
@@ -224,7 +225,7 @@ fun RecordingStatusBanner(isVisible: Boolean) {
 
             Text(
                 text = "RECORDING ACTIVE",
-                style = MaterialTheme.typography.labelLarge,
+                fontSize = if (largeTextMode) 28.sp else 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error
             )
@@ -239,6 +240,7 @@ fun RecordingStatusBanner(isVisible: Boolean) {
 @Composable
 fun RecordingButton(
     isRecording: Boolean,
+    largeTextMode: Boolean = false,
     onClick: () -> Unit
 ) {
     val buttonText = if (isRecording) "Stop Recording" else "Start Recording"
@@ -270,7 +272,7 @@ fun RecordingButton(
     ) {
         Text(
             text = buttonText,
-            style = MaterialTheme.typography.titleMedium,
+            fontSize = if (largeTextMode) 28.sp else 16.sp,
             fontWeight = FontWeight.SemiBold
         )
     }

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- External files directory: getExternalFilesDir("recordings") -->
+    <external-files-path
+        name="recordings_external"
+        path="recordings/" />
+
+    <!-- Internal files directory fallback: filesDir/recordings -->
+    <files-path
+        name="recordings_internal"
+        path="recordings/" />
+</paths>
