@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Settings, 
   Home, 
@@ -24,10 +24,14 @@ import {
 import React, { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { saveSession, saveAudio, loadSessions, loadAudio } from './db';
-import { TranscriptionEngine, ModelStatusIndicator } from './transcription';
-import type { ModelStatus, ModelProgress, TranscriptSegment } from './transcription';
 // --- Types ---
 type Tab = 'home' | 'history' | 'settings';
+
+interface TranscriptSegment {
+  id: string;
+  text: string;
+  type: 'past' | 'recent' | 'current';
+}
 
 interface RecordingSession {
   id: string;
@@ -110,19 +114,16 @@ function TranscriptView({ segments, isLargeText, isRecording }: { segments: Tran
   );
 }
 
-function Controls({ isRecording, onToggle, disabled }: { isRecording: boolean, onToggle: () => void, disabled?: boolean }) {
+function Controls({ isRecording, onToggle }: { isRecording: boolean, onToggle: () => void }) {
   return (
     <div className="fixed bottom-[88px] left-0 w-full px-container-margin pb-4 flex justify-center pointer-events-none">
       <motion.button 
-        whileTap={disabled ? undefined : { scale: 0.95 }}
-        onClick={disabled ? undefined : onToggle}
-        disabled={disabled}
+        whileTap={{ scale: 0.95 }}
+        onClick={onToggle}
         className={`
           pointer-events-auto h-touch-target-min min-w-[240px] px-8 rounded-full flex items-center justify-center gap-3 shadow-lg transition-colors
           ${isRecording ? 'bg-error text-on-error' : 'bg-primary text-on-primary'}
-          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
         `}
-        aria-disabled={disabled}
       >
         {isRecording ? (
           <>
@@ -479,18 +480,22 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [largeTextMode, setLargeTextMode] = useState(true);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  const [interimText, setInterimText] = useState("");
   const [sessions, setSessions] = useState<RecordingSession[]>([]);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [whatsAppGroup, setWhatsAppGroup] = useState("Smith Family Care");
   const [isTextConnected, setIsTextConnected] = useState(false);
   const [textGroup, setTextGroup] = useState("Smith Family Chat");
-  const [modelStatus, setModelStatus] = useState<ModelStatus>('idle');
-  const [modelProgress, setModelProgress] = useState<ModelProgress>({ status: 'idle', downloadPercent: 0 });
   
-  // TranscriptionEngine ref
-  const engineRef = useRef<TranscriptionEngine | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const isRecordingIntentRef = useRef(false);
+  
+  // Media Recorder refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
   const segmentsRef = useRef<TranscriptSegment[]>([]);
+  const interimRef = useRef<string>("");
   const whatsappSettingsRef = useRef({ connected: false, group: "Smith Family Care" });
   const textSettingsRef = useRef({ connected: false, group: "Smith Family Chat" });
 
@@ -498,6 +503,10 @@ export default function App() {
   useEffect(() => {
     segmentsRef.current = segments;
   }, [segments]);
+
+  useEffect(() => {
+    interimRef.current = interimText;
+  }, [interimText]);
 
   useEffect(() => {
     whatsappSettingsRef.current = { connected: isWhatsAppConnected, group: whatsAppGroup };
@@ -526,39 +535,82 @@ export default function App() {
     });
   }, []);
 
-  // Initialize TranscriptionEngine on mount
+  // Initialize Speech Recognition once
   useEffect(() => {
-    const engine = new TranscriptionEngine();
-    engineRef.current = engine;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      alert("Speech Recognition API not available in this browser.");
+      return;
+    }
 
-    // Subscribe to model status updates
-    engine.onModelStatus((progress: ModelProgress) => {
-      setModelStatus(progress.status);
-      setModelProgress(progress);
-    });
+    // Abort any previously-created instance (handles StrictMode double-mount)
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch (_) {}
+    }
 
-    // Subscribe to transcript segments
-    engine.onSegment((segment: TranscriptSegment) => {
-      setSegments(prev => {
-        // Transition existing 'current' segments to 'recent'
-        const updated = prev.map(s => s.type === 'current' ? { ...s, type: 'recent' as const } : s);
-        // Add the new segment as 'current'
-        return [...updated, { ...segment, type: 'current' as const }];
-      });
-    });
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
 
-    // Subscribe to runtime errors (OOM, worker crashes, etc.)
-    engine.onError((error: string) => {
-      console.error('[TranscriptionEngine] Runtime error:', error);
-    });
+    recognition.onresult = (event: any) => {
+      let finalTranscript = "";
+      let currentInterim = "";
 
-    // Load the model (fire and forget — errors handled via onModelStatus)
-    engine.loadModel().catch(() => {
-      // Error is already surfaced via onModelStatus callback
-    });
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          currentInterim += event.results[i][0].transcript;
+        }
+      }
+
+      if (finalTranscript) {
+        setSegments(prev => {
+          const processed = prev.map(s => s.type === 'current' ? { ...s, type: 'recent' as const } : s);
+          return [...processed, {
+            id: Date.now().toString(),
+            text: finalTranscript.trim(),
+            type: 'current' as const
+          }];
+        });
+      }
+      setInterimText(currentInterim);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech Recognition Error:", event.error, event.message);
+      // Only reset recording state for fatal errors, not transient ones like 'no-speech'
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        setIsRecording(false);
+        isRecordingIntentRef.current = false;
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      }
+    };
+
+    recognition.onend = () => {
+      if (isRecordingIntentRef.current) {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error("Error restarting recognition:", e);
+        }
+      }
+    };
+
+    recognitionRef.current = recognition;
 
     return () => {
-      engineRef.current = null;
+      isRecordingIntentRef.current = false;
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch (_) {}
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, []);
 
@@ -580,86 +632,156 @@ export default function App() {
 
   // Handle start/stop
   const handleToggleRecording = async () => {
-    if (!engineRef.current) {
-      alert("Transcription engine is not initialized.");
+    if (!recognitionRef.current) {
+      alert("Speech recognition is not supported in this browser.");
       return;
     }
 
     if (isRecording) {
-      // Stop recording
-      try {
-        const { audioBlob, segments: sessionSegments } = await engineRef.current.stopSession();
-        setIsRecording(false);
-
-        const audioUrl = URL.createObjectURL(audioBlob);
-        
-        const durationMs = Date.now() - startTimeRef.current;
-        const mins = Math.floor(durationMs / 60000);
-        const secs = Math.floor((durationMs % 60000) / 1000);
-        const formattedDuration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-
-        // Use segments from the current state (non-past segments)
-        const currentSessionSegments = segmentsRef.current.filter(s => s.type !== 'past');
-        const finalSegmentsToSave = currentSessionSegments.length > 0 ? currentSessionSegments : sessionSegments;
-
-        if (finalSegmentsToSave.length > 0) {
-          const now = new Date();
-          const sessionId = Date.now().toString();
-          const newSession: RecordingSession = {
-            id: sessionId,
-            title: `Recording on ${now.toLocaleDateString()}`,
-            date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            duration: formattedDuration,
-            audioUrl: audioUrl,
-            segments: finalSegmentsToSave,
-            statusLabel: 'TODAY',
-          };
-          
-          setSessions(prev => [newSession, ...prev]);
-
-          // Persist session metadata and audio to IndexedDB
-          const { audioUrl: _url, ...sessionMetadata } = newSession;
-          saveSession(sessionMetadata).catch(e => console.error('Failed to save session:', e));
-          saveAudio(sessionId, audioBlob).catch(e => console.error('Failed to save audio:', e));
-
-          // Mock WhatsApp Integration sending
-          const waSettings = whatsappSettingsRef.current;
-          if (waSettings.connected) {
-            const fullText = finalSegmentsToSave.map(s => s.text).join(" ");
-            setTimeout(() => {
-              alert(`[WhatsApp Integration]\n\nSuccessfully synced to '${waSettings.group}':\n\n"${fullText}"`);
-            }, 500);
-          }
-
-          // Mock Text Message Integration sending
-          const tSettings = textSettingsRef.current;
-          if (tSettings.connected) {
-            const fullText = finalSegmentsToSave.map(s => s.text).join(" ");
-            setTimeout(() => {
-              alert(`[Text Message Integration]\n\nSuccessfully sent to '${tSettings.group}':\n\n"${fullText}"`);
-            }, 1000);
-          }
-        }
-      } catch (e) {
-        console.error("Error stopping recording:", e);
-        setIsRecording(false);
+      isRecordingIntentRef.current = false;
+      recognitionRef.current.stop();
+      
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
       }
+      
+      setIsRecording(false);
     } else {
-      // Start recording
       try {
-        // Transition existing segments to 'past'
-        setSegments(prev => prev.map(s => ({ ...s, type: 'past' as const })));
+        // Abort any lingering recognition before starting fresh
+        try { recognitionRef.current.abort(); } catch (_) {}
+
+        // Small delay to allow the browser to fully release the previous recognition session
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
         
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunksRef.current.push(e.data);
+          }
+        };
+
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          
+          const durationMs = Date.now() - startTimeRef.current;
+          const mins = Math.floor(durationMs / 60000);
+          const secs = Math.floor((durationMs % 60000) / 1000);
+          const formattedDuration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+          // Pull segments from ref to avoid stale closure
+          const currentSessionSegments = segmentsRef.current.filter(s => s.type !== 'past');
+          const finalSegmentsToSave = [...currentSessionSegments];
+          
+          // Add any remaining interim text if it's not already at the end of the segments
+          const trimmedInterim = interimRef.current.trim();
+          const lastSavedSegment = finalSegmentsToSave.length > 0 ? finalSegmentsToSave[finalSegmentsToSave.length - 1] : null;
+
+          if (trimmedInterim && (!lastSavedSegment || lastSavedSegment.text !== trimmedInterim)) {
+            finalSegmentsToSave.push({
+              id: `final-interim-${Date.now()}`,
+              text: trimmedInterim,
+              type: 'current'
+            });
+
+            // Finalize the segments on the home page too, with deduplication
+            setSegments(prev => {
+              const last = prev.length > 0 ? prev[prev.length - 1] : null;
+              if (trimmedInterim && (!last || last.text !== trimmedInterim)) {
+                return [...prev, {
+                  id: `final-interim-${Date.now()}`,
+                  text: trimmedInterim,
+                  type: 'current'
+                }];
+              }
+              return prev;
+            });
+          }
+
+          if (finalSegmentsToSave.length > 0) {
+            const now = new Date();
+            const sessionId = Date.now().toString();
+            const newSession: RecordingSession = {
+              id: sessionId,
+              title: `Recording on ${now.toLocaleDateString()}`,
+              date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+              time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              duration: formattedDuration,
+              audioUrl: audioUrl,
+              segments: finalSegmentsToSave,
+              statusLabel: 'TODAY',
+            };
+            
+            setSessions(prev => [newSession, ...prev]);
+
+            // Persist session metadata and audio to IndexedDB
+            const { audioUrl: _url, ...sessionMetadata } = newSession;
+            saveSession(sessionMetadata).catch(e => console.error('Failed to save session:', e));
+            saveAudio(sessionId, audioBlob).catch(e => console.error('Failed to save audio:', e));
+            
+            // Clear interim on stop
+            setInterimText("");
+
+            // Mock WhatsApp Integration sending
+            const waSettings = whatsappSettingsRef.current;
+            if (waSettings.connected) {
+              const fullText = finalSegmentsToSave.map(s => s.text).join(" ");
+              setTimeout(() => {
+                alert(`[WhatsApp Integration]\n\nSuccessfully synced to '${waSettings.group}':\n\n"${fullText}"`);
+              }, 500);
+            }
+
+            // Mock Text Message Integration sending
+            const tSettings = textSettingsRef.current;
+            if (tSettings.connected) {
+              const fullText = finalSegmentsToSave.map(s => s.text).join(" ");
+              setTimeout(() => {
+                alert(`[Text Message Integration]\n\nSuccessfully sent to '${tSettings.group}':\n\n"${fullText}"`);
+              }, 1000); // Slightly staggered alert for multiple integrations
+            }
+          }
+          
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorderRef.current = mediaRecorder;
         startTimeRef.current = Date.now();
-        await engineRef.current.startSession();
+        mediaRecorder.start();
+
+        isRecordingIntentRef.current = true;
+        setSegments(prev => prev.filter(s => s.type !== 'past').map(s => ({ ...s, type: 'past' as const })));
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          console.error("Error starting speech recognition:", e);
+          // If start fails, stop the media recorder and clean up
+          mediaRecorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+          isRecordingIntentRef.current = false;
+          setIsRecording(false);
+          alert("Could not start speech recognition. Please try again.");
+          return;
+        }
         setIsRecording(true);
       } catch (e) {
         console.error("Error starting recording:", e);
-        alert("Could not start recording. Please check microphone permissions.");
+        alert("Could not access microphone. Please check permissions.");
       }
     }
   };
+
+  const displaySegments = [...segments];
+  if (interimText) {
+    displaySegments.push({
+      id: 'interim',
+      text: interimText,
+      type: 'current'
+    });
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -668,19 +790,10 @@ export default function App() {
       
       {activeTab === 'home' && (
         <>
-          <TranscriptView segments={segments} isLargeText={largeTextMode} isRecording={isRecording} />
-          {!isRecording && modelStatus !== 'ready' && (
-            <ModelStatusIndicator
-              status={modelStatus}
-              downloadPercent={modelProgress.downloadPercent}
-              errorMessage={modelProgress.errorMessage}
-              onRetry={() => engineRef.current?.loadModel().catch(() => {})}
-            />
-          )}
+          <TranscriptView segments={displaySegments} isLargeText={largeTextMode} isRecording={isRecording} />
           <Controls 
             isRecording={isRecording} 
-            onToggle={handleToggleRecording}
-            disabled={!isRecording && modelStatus !== 'ready'}
+            onToggle={handleToggleRecording} 
           />
         </>
       )}
