@@ -1,7 +1,6 @@
 package com.transcribecare.app.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -63,6 +63,7 @@ import com.transcribecare.app.viewmodel.HistoryViewModel
  * @param onShareClick Callback invoked when the share button is tapped for a session.
  * @param onPlayPauseClick Callback invoked when the play/pause button is tapped.
  * @param onSpeedChange Callback invoked when a new playback speed is selected.
+ * @param onPlaySession Callback invoked when the play button is tapped on a session card.
  */
 @Composable
 fun HistoryScreen(
@@ -72,6 +73,7 @@ fun HistoryScreen(
     onShareClick: (RecordingSession) -> Unit = {},
     onPlayPauseClick: () -> Unit = {},
     onSpeedChange: (Float) -> Unit = {},
+    onPlaySession: (RecordingSession) -> Unit = {},
 ) {
     val searchQuery by viewModel.searchQuery.collectAsState()
     val filteredSessions by viewModel.filteredSessions.collectAsState()
@@ -111,7 +113,8 @@ fun HistoryScreen(
                 SessionCard(
                     session = session,
                     onSessionClick = { onSessionClick(session.id) },
-                    onShareClick = { onShareClick(session) }
+                    onShareClick = { onShareClick(session) },
+                    onPlayClick = { onPlaySession(session) }
                 )
             }
         }
@@ -309,22 +312,26 @@ private fun AudioPlaybackControls(
 
 /**
  * A single session card displaying title, date, time, duration, status label,
- * and a share button. Tapping the card navigates to session detail.
+ * and contextual action buttons.
+ *
+ * - Sessions with transcript segments show a "View Transcript" button that navigates to detail.
+ * - Sessions without transcript segments (audio-only) show a "Play" button for playback.
+ * - All sessions show a share button.
  */
 @Composable
 private fun SessionCard(
     session: RecordingSession,
     onSessionClick: () -> Unit,
-    onShareClick: () -> Unit
+    onShareClick: () -> Unit,
+    onPlayClick: () -> Unit
 ) {
+    val hasTranscript = session.segments.isNotEmpty()
+    val hasAudio = session.audioFilePath != null
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .sizeIn(minHeight = 48.dp)
-            .clickable(
-                onClick = onSessionClick,
-                onClickLabel = "View session details for ${session.title}"
-            )
             .semantics {
                 contentDescription = "Session: ${session.title}, recorded on ${session.date} at ${session.time}, duration ${session.duration}, status ${session.statusLabel}"
             },
@@ -333,74 +340,126 @@ private fun SessionCard(
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(12.dp)
         ) {
-            // Session info
-            Column(
-                modifier = Modifier.weight(1f)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Title row with status badge
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
+                // Session info
+                Column(
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = session.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
+                    // Title row with status badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = session.title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                    // Status label badge
-                    StatusBadge(label = session.statusLabel)
+                        // Status label badge
+                        StatusBadge(label = session.statusLabel)
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Date, time, and duration
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = session.date,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = session.time,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = session.duration,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Date, time, and duration
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                // Share button
+                IconButton(
+                    onClick = onShareClick,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics {
+                            contentDescription = "Share session: ${session.title}"
+                        }
                 ) {
-                    Text(
-                        text = session.date,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = session.time,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = session.duration,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
 
-            // Share button
-            IconButton(
-                onClick = onShareClick,
-                modifier = Modifier
-                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                    .semantics {
-                        contentDescription = "Share session: ${session.title}"
-                    }
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Action buttons row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Share,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                if (hasTranscript) {
+                    // View Transcript button for sessions with segments
+                    TextButton(
+                        onClick = onSessionClick,
+                        modifier = Modifier
+                            .sizeIn(minHeight = 48.dp)
+                            .semantics {
+                                contentDescription = "View transcript for ${session.title}"
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "View Transcript")
+                    }
+                }
+
+                if (hasAudio) {
+                    // Play button for audio playback
+                    TextButton(
+                        onClick = onPlayClick,
+                        modifier = Modifier
+                            .sizeIn(minHeight = 48.dp)
+                            .semantics {
+                                contentDescription = "Play audio for ${session.title}"
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "Play")
+                    }
+                }
             }
         }
     }

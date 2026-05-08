@@ -147,8 +147,11 @@ fun AppNavigation() {
             }
 
             composable(Routes.HISTORY) {
+                val audioPlayerState by historyViewModel.audioPlayerState.collectAsStateWithLifecycle()
+
                 HistoryScreen(
                     viewModel = historyViewModel,
+                    audioPlayerState = audioPlayerState,
                     onSessionClick = { sessionId ->
                         navController.navigate(Routes.sessionDetail(sessionId))
                     },
@@ -156,6 +159,20 @@ fun AppNavigation() {
                         val intent = shareService.createShareIntent(session, context)
                         val chooser = Intent.createChooser(intent, "Share Session")
                         context.startActivity(chooser)
+                    },
+                    onPlayPauseClick = {
+                        val state = historyViewModel.audioPlayerState.value
+                        if (state.isPlaying) {
+                            historyViewModel.pausePlayback()
+                        } else {
+                            historyViewModel.resumePlayback()
+                        }
+                    },
+                    onSpeedChange = { speed ->
+                        historyViewModel.setPlaybackSpeed(speed)
+                    },
+                    onPlaySession = { session ->
+                        historyViewModel.playSession(session)
                     }
                 )
             }

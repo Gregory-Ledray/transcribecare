@@ -98,6 +98,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
      * Stops recording. Calls [UnifiedAudioCaptureService.stopCapture] which stops
      * the background thread and releases all consumers, then retrieves the file path
      * from [FileRecordingConsumer] and saves the session.
+     *
+     * Always saves the session to history regardless of whether transcript segments
+     * were captured, so audio-only recordings are preserved for later playback.
      */
     fun stopRecording() {
         // Stop unified capture (stops thread, calls release() on consumers)
@@ -110,12 +113,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val durationMs = System.currentTimeMillis() - recordingStartTime
         val formattedDuration = formatDuration(durationMs)
 
-        // Create session from current segments
+        // Create and save session regardless of whether segments exist.
+        // Audio-only recordings (no transcript) still appear in history.
         val currentSegments = _segments.value
-        if (currentSegments.isNotEmpty()) {
-            val session = createSession(currentSegments, audioFilePath, formattedDuration)
-            saveSession(session)
-        }
+        val session = createSession(currentSegments, audioFilePath, formattedDuration)
+        saveSession(session)
 
         // Reset state for next session
         _segments.value = emptyList()
@@ -153,6 +155,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Generates session metadata from the current recording state.
+     * When no transcript segments exist, the title defaults to "Audio Recording".
      */
     private fun createSession(
         segments: List<TranscriptSegment>,
@@ -163,8 +166,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.US)
         val timeFormat = SimpleDateFormat("hh:mm a", Locale.US)
 
-        // Title from first segment text (truncated to 50 chars)
-        val title = segments.firstOrNull()?.text?.take(50) ?: "Recording"
+        // Title from first segment text (truncated to 50 chars), or fallback for audio-only
+        val title = segments.firstOrNull()?.text?.take(50) ?: "Audio Recording"
 
         return RecordingSession(
             id = UUID.randomUUID().toString(),
