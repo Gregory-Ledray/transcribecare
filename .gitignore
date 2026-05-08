@@ -25,6 +25,9 @@ android/.idea/
 android/captures/
 android/*.iml
 android/app/*.iml
+android/keystore.properties
+android/*.jks
+android/*.keystore
 
 # ─── iOS ──────────────────────────────────────────────
 ios/DerivedData/
