@@ -10,6 +10,12 @@
  * Communicates back via WorkerOutMessage posts (model-progress, transcript, error, cache-status).
  */
 
+// Polyfill: wllama's `absoluteUrl` utility references `document.baseURI` which
+// doesn't exist in a Web Worker context. Provide a shim so URL resolution works.
+if (typeof document === 'undefined') {
+  (self as any).document = { baseURI: self.location?.href ?? '/' };
+}
+
 import { Wllama } from '@wllama/wllama';
 import type {
   AudioChunk,
