@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import React, { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-
+import { saveSession, saveAudio, loadSessions, loadAudio } from './db';
 // --- Types ---
 type Tab = 'home' | 'history' | 'settings';
 
@@ -457,14 +457,7 @@ export default function App() {
   const [largeTextMode, setLargeTextMode] = useState(true);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [interimText, setInterimText] = useState("");
-  const [sessions, setSessions] = useState<RecordingSession[]>(() => {
-    try {
-      const stored = localStorage.getItem('transcribecare_sessions');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [sessions, setSessions] = useState<RecordingSession[]>([]);
   const [isWhatsAppConnected, setIsWhatsAppConnected] = useState(false);
   const [whatsAppGroup, setWhatsAppGroup] = useState("Smith Family Care");
   const [isTextConnected, setIsTextConnected] = useState(false);
@@ -499,14 +492,24 @@ export default function App() {
     textSettingsRef.current = { connected: isTextConnected, group: textGroup };
   }, [isTextConnected, textGroup]);
 
-  // Persist sessions to localStorage
+  // Load sessions from IndexedDB on mount
   useEffect(() => {
-    try {
-      localStorage.setItem('transcribecare_sessions', JSON.stringify(sessions));
-    } catch (e) {
-      console.error('Failed to persist sessions to localStorage:', e);
-    }
-  }, [sessions]);
+    loadSessions().then(async (storedSessions) => {
+      // Restore audio URLs from IndexedDB blobs
+      const sessionsWithAudio = await Promise.all(
+        storedSessions.map(async (session) => {
+          const audioBlob = await loadAudio(session.id);
+          return {
+            ...session,
+            audioUrl: audioBlob ? URL.createObjectURL(audioBlob) : undefined,
+          };
+        })
+      );
+      setSessions(sessionsWithAudio);
+    }).catch((e) => {
+      console.error('Failed to load sessions from IndexedDB:', e);
+    });
+  }, []);
 
   // Initialize Speech Recognition once
   useEffect(() => {
@@ -677,8 +680,9 @@ export default function App() {
 
           if (finalSegmentsToSave.length > 0) {
             const now = new Date();
+            const sessionId = Date.now().toString();
             const newSession: RecordingSession = {
-              id: Date.now().toString(),
+              id: sessionId,
               title: `Recording on ${now.toLocaleDateString()}`,
               date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
               time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -689,6 +693,11 @@ export default function App() {
             };
             
             setSessions(prev => [newSession, ...prev]);
+
+            // Persist session metadata and audio to IndexedDB
+            const { audioUrl: _url, ...sessionMetadata } = newSession;
+            saveSession(sessionMetadata).catch(e => console.error('Failed to save session:', e));
+            saveAudio(sessionId, audioBlob).catch(e => console.error('Failed to save audio:', e));
             
             // Clear interim on stop
             setInterimText("");
