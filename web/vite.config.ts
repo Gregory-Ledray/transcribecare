@@ -14,10 +14,25 @@ export default defineConfig(({mode}) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    worker: {
+      format: 'es',
+    },
+    assetsInclude: ['**/*.worklet.ts'],
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      headers: {
+        // Required for SharedArrayBuffer used by wllama WASM
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+      },
+    },
+    build: {
+      target: 'esnext',
+    },
+    optimizeDeps: {
+      exclude: ['@wllama/wllama'],
     },
   };
 });
