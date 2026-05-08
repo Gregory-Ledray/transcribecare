@@ -179,6 +179,20 @@ function AudioPlayer({ session, isActive, onToggle }: { session: RecordingSessio
     setCurrentTime("00:00");
   };
 
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current || !progressBarRef.current) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+    const duration = audioRef.current.duration;
+    if (isFinite(duration)) {
+      audioRef.current.currentTime = ratio * duration;
+      setProgress(ratio * 100);
+    }
+  };
+
   return (
     <div className={`p-4 rounded-xl flex flex-col gap-4 ${isActive ? 'bg-surface-container' : 'bg-surface-container-low opacity-80'}`}>
       <audio 
@@ -197,11 +211,21 @@ function AudioPlayer({ session, isActive, onToggle }: { session: RecordingSessio
           {isActive ? <Pause size={24} fill="currentColor" /> : <Play size={24} className="ml-1" fill="currentColor" />}
         </button>
         <div className="flex-1 space-y-1">
-          <div className="h-1.5 w-full bg-outline-variant rounded-full overflow-hidden relative">
+          <div
+            ref={progressBarRef}
+            onClick={handleSeek}
+            role="slider"
+            aria-label="Audio playback position"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+            tabIndex={0}
+            className="h-3 w-full bg-outline-variant rounded-full overflow-hidden relative cursor-pointer group"
+          >
             <div className="absolute inset-0 bg-outline-variant opacity-20" />
             <motion.div 
               style={{ width: `${progress}%` }}
-              className="h-full bg-secondary duration-75"
+              className="h-full bg-secondary duration-75 group-hover:bg-secondary-container"
             />
           </div>
           <div className="flex justify-between text-[10px] font-bold text-on-surface-variant font-mono">
