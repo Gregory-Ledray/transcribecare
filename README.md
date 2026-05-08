@@ -25,7 +25,7 @@ The web application is built with React 19, Vite 6, and Tailwind CSS 4.
 ```bash
 cd web
 npm install
-cp .env.example .env   # Add your GEMINI_API_KEY
+cp .env.example .env
 npm run dev            # Starts dev server on port 3000
 ```
 

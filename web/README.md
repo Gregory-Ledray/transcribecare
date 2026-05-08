@@ -14,7 +14,7 @@ This contains everything you need to run the app locally and deploy to Google Cl
    ```bash
    npm install
    ```
-2. Copy `.env.example` to `.env` and set your `GEMINI_API_KEY`:
+2. Copy `.env.example` to `.env` and set any variables:
    ```bash
    cp .env.example .env
    ```
@@ -45,36 +45,13 @@ gcloud run deploy transcribecare \
   --allow-unauthenticated \
   --port 8080 \
   --project treatcost-com \
-  --set-env-vars "GEMINI_API_KEY=unused"
+  --build-service-account projects/treatcost-com/serviceAccounts/cloudbuild@treatcost-com.iam.gserviceaccount.com
 ```
 
 This command:
 - Builds the container image using the `Dockerfile` via Cloud Build
 - Pushes the image to Artifact Registry
 - Deploys a new revision to the **transcribecare** service in **us-west1**
-
-### Deploy with a pre-built image
-
-If you prefer to build and push the image manually:
-
-```bash
-# 1. Set your project ID
-export PROJECT_ID=$(gcloud config get-value project)
-
-# 2. Build the image
-docker build -t us-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/transcribecare .
-
-# 3. Push to Artifact Registry
-docker push us-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/transcribecare
-
-# 4. Deploy the new revision
-gcloud run deploy transcribecare \
-  --image us-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/transcribecare \
-  --region us-west1 \
-  --allow-unauthenticated \
-  --port 8080 \
-  --set-env-vars "GEMINI_API_KEY=<your-api-key>"
-```
 
 ### Verify the deployment
 
@@ -87,7 +64,7 @@ gcloud run services describe transcribecare --region us-west1 --format="value(st
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `PORT` | No | Server port (defaults to 8080, set automatically by Cloud Run) |
-| `GEMINI_API_KEY` | Yes | API key for Gemini AI features |
+| `GEMINI_API_KEY` | No | API key for Gemini AI features |
 
 ### Rollback
 

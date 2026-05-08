@@ -10,7 +10,7 @@
 ```bash
 cd web
 npm install
-cp .env.example .env   # Add GEMINI_API_KEY if using AI features
+cp .env.example .env
 ```
 
 ### Commands
