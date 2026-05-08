@@ -86,13 +86,30 @@ class SpeechRecognitionConsumer(
      * Stops speech recognition and releases all resources.
      *
      * Clears the active flag to prevent auto-restart, removes pending handler
-     * callbacks, and destroys the [SpeechRecognizer] instance.
+     * callbacks, and destroys the [SpeechRecognizer] instance synchronously
+     * on the main thread to ensure the audio source is fully released before
+     * a new recording session can begin.
      */
     override fun release() {
         isActive = false
         handler.removeCallbacksAndMessages(null)
-        handler.post {
+
+        // Destroy recognizer synchronously on the main looper to ensure the
+        // internal audio source is released before the next recording starts.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
             destroyRecognizer()
+        } else {
+            // Post and wait for completion using a CountDownLatch
+            val latch = java.util.concurrent.CountDownLatch(1)
+            handler.post {
+                destroyRecognizer()
+                latch.countDown()
+            }
+            try {
+                latch.await(1000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
         }
     }
 

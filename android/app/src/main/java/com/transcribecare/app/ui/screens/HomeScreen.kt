@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.text.style.TextAlign
 import com.transcribecare.app.model.SegmentType
 import com.transcribecare.app.model.TranscriptSegment
 import com.transcribecare.app.viewmodel.HomeViewModel
@@ -92,22 +93,33 @@ fun HomeScreen(
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Recording Status Banner
+        // Recording Status Banner (overlays at the top, doesn't push content)
         RecordingStatusBanner(isVisible = isRecording, largeTextMode = largeTextMode)
 
-        // Main content
+        // Main content with button centered vertically
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            // Recording control button
+            // Live transcript display (above the button, takes available space)
+            TranscriptDisplay(
+                segments = segments,
+                interimText = interimText,
+                largeTextMode = largeTextMode,
+                modifier = Modifier.weight(1f)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Recording control button (centered in remaining space)
             RecordingButton(
                 isRecording = isRecording,
                 largeTextMode = largeTextMode,
@@ -141,14 +153,6 @@ fun HomeScreen(
                 }
 
             Spacer(modifier = Modifier.height(24.dp))
-
-            // Live transcript display
-            TranscriptDisplay(
-                segments = segments,
-                interimText = interimText,
-                largeTextMode = largeTextMode,
-                modifier = Modifier.weight(1f)
-            )
         }
     }
 
@@ -225,7 +229,7 @@ fun RecordingStatusBanner(isVisible: Boolean, largeTextMode: Boolean = false) {
 
             Text(
                 text = "RECORDING ACTIVE",
-                fontSize = if (largeTextMode) 28.sp else 14.sp,
+                fontSize = if (largeTextMode) 36.sp else 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error
             )
@@ -272,7 +276,7 @@ fun RecordingButton(
     ) {
         Text(
             text = buttonText,
-            fontSize = if (largeTextMode) 28.sp else 16.sp,
+            fontSize = if (largeTextMode) 36.sp else 16.sp,
             fontWeight = FontWeight.SemiBold
         )
     }
@@ -282,7 +286,8 @@ fun RecordingButton(
 /**
  * Displays the live transcript with interim text and finalized segments.
  * Segments are color-coded by type (PAST, RECENT, CURRENT).
- * Supports Large Text Mode (36sp minimum when enabled).
+ * Supports Large Text Mode (44sp when enabled).
+ * Shows placeholder text when no transcription is available.
  */
 @Composable
 fun TranscriptDisplay(
@@ -291,39 +296,67 @@ fun TranscriptDisplay(
     largeTextMode: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val baseFontSize = if (largeTextMode) 36.sp else 16.sp
+    val baseFontSize = if (largeTextMode) 44.sp else 16.sp
+    val isEmpty = segments.isEmpty() && interimText.isEmpty()
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics {
-                contentDescription = "Live transcript display"
-            }
-    ) {
-        // Finalized segments
-        items(segments, key = { it.id }) { segment ->
-            TranscriptSegmentItem(
-                segment = segment,
-                fontSize = baseFontSize,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-
-        // Interim text (partial recognition result)
-        if (interimText.isNotEmpty()) {
-            item(key = "interim") {
+    if (isEmpty) {
+        // Empty state placeholder
+        Box(
+            modifier = modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
-                    text = interimText,
-                    fontSize = baseFontSize,
-                    fontStyle = FontStyle.Italic,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .semantics {
-                            contentDescription = "Interim transcript: $interimText"
-                        }
+                    text = "Ready to transcribe",
+                    textAlign =  TextAlign.Center,
+                    fontSize = if (largeTextMode) 36.sp else 20.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                    fontWeight = FontWeight.Medium
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Tap \"Start Recording\" to begin",
+                    textAlign =  TextAlign.Center,
+                    fontSize = if (largeTextMode) 28.sp else 16.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = modifier
+                .fillMaxWidth()
+                .semantics {
+                    contentDescription = "Live transcript display"
+                }
+        ) {
+            // Finalized segments
+            items(segments, key = { it.id }) { segment ->
+                TranscriptSegmentItem(
+                    segment = segment,
+                    fontSize = baseFontSize,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Interim text (partial recognition result)
+            if (interimText.isNotEmpty()) {
+                item(key = "interim") {
+                    Text(
+                        text = interimText,
+                        fontSize = baseFontSize,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .semantics {
+                                contentDescription = "Interim transcript: $interimText"
+                            }
+                    )
+                }
             }
         }
     }

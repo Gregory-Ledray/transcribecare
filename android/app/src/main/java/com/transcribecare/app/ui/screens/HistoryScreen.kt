@@ -143,7 +143,7 @@ private fun SearchBar(
     largeTextMode: Boolean = false,
     onQueryChange: (String) -> Unit
 ) {
-    val textSize = if (largeTextMode) 24.sp else 16.sp
+    val textSize = if (largeTextMode) 32.sp else 16.sp
 
     OutlinedTextField(
         value = query,
@@ -164,7 +164,8 @@ private fun SearchBar(
         leadingIcon = {
             Icon(
                 imageVector = Icons.Default.Search,
-                contentDescription = null
+                contentDescription = null,
+                modifier = Modifier.size(28.dp)
             )
         },
         trailingIcon = {
@@ -179,7 +180,8 @@ private fun SearchBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = null
+                        contentDescription = null,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
@@ -225,12 +227,12 @@ private fun SessionCard(
     val hasAudio = session.audioFilePath != null
     val isCurrentlyPlaying = isActivePlayback && audioPlayerState.isPlaying
 
-    val titleSize = if (largeTextMode) 24.sp else 14.sp
-    val bodySize = if (largeTextMode) 20.sp else 12.sp
-    val buttonTextSize = if (largeTextMode) 20.sp else 14.sp
-    val badgeSize = if (largeTextMode) 16.sp else 11.sp
-    val controlTextSize = if (largeTextMode) 20.sp else 12.sp
-    val speedTextSize = if (largeTextMode) 20.sp else 14.sp
+    val titleSize = if (largeTextMode) 32.sp else 14.sp
+    val bodySize = if (largeTextMode) 28.sp else 12.sp
+    val buttonTextSize = if (largeTextMode) 28.sp else 14.sp
+    val badgeSize = if (largeTextMode) 22.sp else 11.sp
+    val controlTextSize = if (largeTextMode) 28.sp else 12.sp
+    val speedTextSize = if (largeTextMode) 28.sp else 14.sp
 
     Card(
         modifier = Modifier
@@ -312,7 +314,8 @@ private fun SessionCard(
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
                     )
                 }
             }
@@ -368,7 +371,7 @@ private fun SessionCard(
                     Icon(
                         imageVector = Icons.Default.Description,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(text = "View Transcript", fontSize = buttonTextSize)
@@ -402,7 +405,7 @@ private fun SessionCard(
                                 Icons.Default.PlayArrow
                             },
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(

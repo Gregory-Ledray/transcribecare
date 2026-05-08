@@ -2,6 +2,7 @@ package com.transcribecare.app.ui.navigation
 
 import android.content.Intent
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.History
@@ -18,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -104,6 +106,7 @@ fun AppNavigation() {
                                 Icon(
                                     imageVector = tab.icon,
                                     contentDescription = tab.label,
+                                    modifier = Modifier.size(32.dp)
                                 )
                             },
                             label = { Text(tab.label) },

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -50,9 +51,9 @@ fun SessionDetailScreen(
 ) {
     val largeTextMode by settingsViewModel.largeTextMode.collectAsState()
 
-    val titleFontSize = if (largeTextMode) 40.sp else 22.sp
-    val metadataFontSize = if (largeTextMode) 36.sp else 14.sp
-    val segmentFontSize = if (largeTextMode) 36.sp else 16.sp
+    val titleFontSize = if (largeTextMode) 48.sp else 22.sp
+    val metadataFontSize = if (largeTextMode) 44.sp else 14.sp
+    val segmentFontSize = if (largeTextMode) 44.sp else 16.sp
 
     Column(
         modifier = Modifier
@@ -129,7 +130,8 @@ private fun SessionDetailHeader(
                 Icon(
                     imageVector = Icons.Default.Share,
                     contentDescription = null, // Handled by parent semantics
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
                 )
             }
         }
