@@ -22,6 +22,7 @@ import {
   Share2
 } from 'lucide-react';
 import React, { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 
 // --- Types ---
 type Tab = 'home' | 'history' | 'settings';
@@ -48,7 +49,7 @@ interface RecordingSession {
 function Header({ onSettingsClick }: { onSettingsClick: () => void }) {
   return (
     <header className="fixed top-0 w-full bg-surface z-50 border-b border-outline-variant flex justify-between items-center px-container-margin h-touch-target-min">
-      <div className="text-[28px] font-bold text-primary">TranscribeCare</div>
+      <Link to="/" className="text-[28px] font-bold text-primary">TranscribeCare</Link>
     </header>
   );
 }
