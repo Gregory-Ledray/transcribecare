@@ -537,7 +537,7 @@ export default function App() {
     };
 
     recognition.onerror = (event: any) => {
-      console.error("Speech Recognition Error:", event.error);
+      console.error("Speech Recognition Error:", event.error, event.message);
       // Only reset recording state for fatal errors, not transient ones like 'no-speech'
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
         setIsRecording(false);
@@ -607,6 +607,9 @@ export default function App() {
       try {
         // Abort any lingering recognition before starting fresh
         try { recognitionRef.current.abort(); } catch (_) {}
+
+        // Small delay to allow the browser to fully release the previous recognition session
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
@@ -702,7 +705,18 @@ export default function App() {
 
         isRecordingIntentRef.current = true;
         setSegments(prev => prev.filter(s => s.type !== 'past').map(s => ({ ...s, type: 'past' as const })));
-        recognitionRef.current.start();
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          console.error("Error starting speech recognition:", e);
+          // If start fails, stop the media recorder and clean up
+          mediaRecorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+          isRecordingIntentRef.current = false;
+          setIsRecording(false);
+          alert("Could not start speech recognition. Please try again.");
+          return;
+        }
         setIsRecording(true);
       } catch (e) {
         console.error("Error starting recording:", e);
