@@ -1,6 +1,9 @@
 package com.transcribecare.app.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -17,9 +23,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.transcribecare.app.viewmodel.SettingsViewModel
@@ -32,6 +40,7 @@ import com.transcribecare.app.viewmodel.SettingsViewModel
 @Composable
 fun SettingsScreen(settingsViewModel: SettingsViewModel) {
     val largeTextMode by settingsViewModel.largeTextMode.collectAsState()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -87,6 +96,41 @@ fun SettingsScreen(settingsViewModel: SettingsViewModel) {
                         .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Privacy Policy link
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .sizeIn(minHeight = 48.dp)
+                .clickable {
+                    val intent = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://transcribecare.com/PRIVACY_POLICY.md")
+                    )
+                    context.startActivity(intent)
+                }
+                .semantics {
+                    contentDescription = "Privacy Policy. Opens in browser."
+                }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Privacy Policy",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }
