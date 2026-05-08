@@ -189,6 +189,15 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
+     * Seeks to a specific position in the currently playing audio.
+     *
+     * @param positionMs The target position in milliseconds.
+     */
+    fun seekTo(positionMs: Int) {
+        audioPlayerService.seekTo(positionMs)
+    }
+
+    /**
      * Stops playback and clears the current playback session.
      */
     fun stopPlayback() {

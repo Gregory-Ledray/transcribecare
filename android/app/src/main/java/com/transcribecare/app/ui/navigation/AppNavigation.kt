@@ -1,6 +1,7 @@
 package com.transcribecare.app.ui.navigation
 
 import android.content.Intent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -33,6 +34,7 @@ import androidx.navigation.navArgument
 import com.transcribecare.app.service.ShareService
 import com.transcribecare.app.ui.screens.HistoryScreen
 import com.transcribecare.app.ui.screens.HomeScreen
+import com.transcribecare.app.ui.screens.RecordingStatusBanner
 import com.transcribecare.app.ui.screens.SessionDetailScreen
 import com.transcribecare.app.ui.screens.SettingsScreen
 import com.transcribecare.app.viewmodel.HistoryViewModel
@@ -137,11 +139,17 @@ fun AppNavigation() {
             }
         }
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Routes.HOME,
-            modifier = Modifier.padding(innerPadding)
-        ) {
+        val isRecording by homeViewModel.isRecording.collectAsStateWithLifecycle()
+        val globalLargeTextMode by settingsViewModel.largeTextMode.collectAsStateWithLifecycle()
+
+        Column(modifier = Modifier.padding(innerPadding)) {
+            // Global recording banner visible on all tabs
+            RecordingStatusBanner(isVisible = isRecording, largeTextMode = globalLargeTextMode)
+
+            NavHost(
+                navController = navController,
+                startDestination = Routes.HOME,
+            ) {
             composable(Routes.HOME) {
                 HomeScreen(
                     homeViewModel = homeViewModel,
@@ -180,6 +188,9 @@ fun AppNavigation() {
                     },
                     onPlaySession = { session ->
                         historyViewModel.playSession(session)
+                    },
+                    onSeek = { positionMs ->
+                        historyViewModel.seekTo(positionMs)
                     }
                 )
             }
@@ -210,6 +221,7 @@ fun AppNavigation() {
                     }
                 }
             }
+        }
         }
     }
 }

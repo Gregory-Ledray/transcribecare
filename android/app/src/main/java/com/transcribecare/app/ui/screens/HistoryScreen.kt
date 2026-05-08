@@ -1,6 +1,7 @@
 package com.transcribecare.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +30,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +69,7 @@ import com.transcribecare.app.viewmodel.HistoryViewModel
  * @param onPlayPauseClick Callback invoked when the play/pause button is tapped on the active session.
  * @param onSpeedChange Callback invoked when a new playback speed is selected (applies globally).
  * @param onPlaySession Callback invoked when play is tapped to start playback for a session.
+ * @param onSeek Callback invoked when the user taps the progress bar to seek, passing position in ms.
  */
 @Composable
 fun HistoryScreen(
@@ -80,6 +82,7 @@ fun HistoryScreen(
     onPlayPauseClick: () -> Unit = {},
     onSpeedChange: (Float) -> Unit = {},
     onPlaySession: (RecordingSession) -> Unit = {},
+    onSeek: (Int) -> Unit = {},
 ) {
     val searchQuery by viewModel.searchQuery.collectAsState()
     val filteredSessions by viewModel.filteredSessions.collectAsState()
@@ -126,7 +129,8 @@ fun HistoryScreen(
                             onPlaySession(session)
                         }
                     },
-                    onSpeedChange = onSpeedChange
+                    onSpeedChange = onSpeedChange,
+                    onSeek = onSeek
                 )
             }
         }
@@ -211,6 +215,7 @@ private fun SearchBar(
  * @param onShareClick Callback for the share button.
  * @param onPlayPauseClick Callback to play this session or toggle pause on the active session.
  * @param onSpeedChange Callback to change playback speed (applies globally).
+ * @param onSeek Callback to seek to a position in ms when the progress bar is tapped.
  */
 @Composable
 private fun SessionCard(
@@ -221,7 +226,8 @@ private fun SessionCard(
     onSessionClick: () -> Unit,
     onShareClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
-    onSpeedChange: (Float) -> Unit
+    onSpeedChange: (Float) -> Unit,
+    onSeek: (Int) -> Unit = {}
 ) {
     val hasTranscript = session.segments.isNotEmpty()
     val hasAudio = session.audioFilePath != null
@@ -330,18 +336,43 @@ private fun SessionCard(
                     0f
                 }
 
-                LinearProgressIndicator(
-                    progress = { progress },
+                // Seekable progress bar — tap anywhere to jump to that position
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .height(24.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .pointerInput(audioPlayerState.totalDuration) {
+                            detectTapGestures { offset ->
+                                if (audioPlayerState.totalDuration > 0) {
+                                    val fraction = (offset.x / size.width).coerceIn(0f, 1f)
+                                    val seekPosition = (fraction * audioPlayerState.totalDuration).toInt()
+                                    onSeek(seekPosition)
+                                }
+                            }
+                        }
                         .semantics {
-                            contentDescription = "Audio playback progress bar"
+                            contentDescription = "Audio playback progress bar. Tap to seek."
                         },
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                )
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    // Track background
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                    )
+                    // Filled progress
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction = progress)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 

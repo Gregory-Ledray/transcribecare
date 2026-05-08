@@ -98,9 +98,6 @@ fun HomeScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Recording Status Banner (overlays at the top, doesn't push content)
-        RecordingStatusBanner(isVisible = isRecording, largeTextMode = largeTextMode)
-
         // Main content with button centered vertically
         Column(
             modifier = Modifier
