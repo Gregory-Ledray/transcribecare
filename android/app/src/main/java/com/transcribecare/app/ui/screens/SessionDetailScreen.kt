@@ -51,9 +51,9 @@ fun SessionDetailScreen(
 ) {
     val largeTextMode by settingsViewModel.largeTextMode.collectAsState()
 
-    val titleFontSize = if (largeTextMode) 48.sp else 22.sp
-    val metadataFontSize = if (largeTextMode) 44.sp else 14.sp
-    val segmentFontSize = if (largeTextMode) 44.sp else 16.sp
+    val titleFontSize = if (largeTextMode) 48.sp else 26.sp
+    val metadataFontSize = if (largeTextMode) 44.sp else 18.sp
+    val segmentFontSize = if (largeTextMode) 44.sp else 20.sp
 
     Column(
         modifier = Modifier

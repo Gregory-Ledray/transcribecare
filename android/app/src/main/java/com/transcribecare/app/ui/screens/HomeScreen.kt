@@ -229,7 +229,7 @@ fun RecordingStatusBanner(isVisible: Boolean, largeTextMode: Boolean = false) {
 
             Text(
                 text = "RECORDING ACTIVE",
-                fontSize = if (largeTextMode) 36.sp else 14.sp,
+                fontSize = if (largeTextMode) 36.sp else 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error
             )
@@ -276,7 +276,7 @@ fun RecordingButton(
     ) {
         Text(
             text = buttonText,
-            fontSize = if (largeTextMode) 36.sp else 16.sp,
+            fontSize = if (largeTextMode) 36.sp else 20.sp,
             fontWeight = FontWeight.SemiBold
         )
     }
@@ -296,7 +296,7 @@ fun TranscriptDisplay(
     largeTextMode: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val baseFontSize = if (largeTextMode) 44.sp else 16.sp
+    val baseFontSize = if (largeTextMode) 44.sp else 20.sp
     val isEmpty = segments.isEmpty() && interimText.isEmpty()
 
     if (isEmpty) {
@@ -311,7 +311,7 @@ fun TranscriptDisplay(
                 Text(
                     text = "Ready to transcribe",
                     textAlign =  TextAlign.Center,
-                    fontSize = if (largeTextMode) 36.sp else 20.sp,
+                    fontSize = if (largeTextMode) 36.sp else 24.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                     fontWeight = FontWeight.Medium
                 )
@@ -319,7 +319,7 @@ fun TranscriptDisplay(
                 Text(
                     text = "Tap \"Start Recording\" to begin",
                     textAlign =  TextAlign.Center,
-                    fontSize = if (largeTextMode) 28.sp else 16.sp,
+                    fontSize = if (largeTextMode) 28.sp else 20.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
                 )
             }

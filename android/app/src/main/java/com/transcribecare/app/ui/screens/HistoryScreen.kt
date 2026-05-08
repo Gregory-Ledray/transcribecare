@@ -143,7 +143,7 @@ private fun SearchBar(
     largeTextMode: Boolean = false,
     onQueryChange: (String) -> Unit
 ) {
-    val textSize = if (largeTextMode) 32.sp else 16.sp
+    val textSize = if (largeTextMode) 32.sp else 20.sp
 
     OutlinedTextField(
         value = query,
@@ -227,12 +227,12 @@ private fun SessionCard(
     val hasAudio = session.audioFilePath != null
     val isCurrentlyPlaying = isActivePlayback && audioPlayerState.isPlaying
 
-    val titleSize = if (largeTextMode) 32.sp else 14.sp
-    val bodySize = if (largeTextMode) 28.sp else 12.sp
-    val buttonTextSize = if (largeTextMode) 28.sp else 14.sp
-    val badgeSize = if (largeTextMode) 22.sp else 11.sp
-    val controlTextSize = if (largeTextMode) 28.sp else 12.sp
-    val speedTextSize = if (largeTextMode) 28.sp else 14.sp
+    val titleSize = if (largeTextMode) 32.sp else 18.sp
+    val bodySize = if (largeTextMode) 28.sp else 16.sp
+    val buttonTextSize = if (largeTextMode) 28.sp else 18.sp
+    val badgeSize = if (largeTextMode) 22.sp else 14.sp
+    val controlTextSize = if (largeTextMode) 28.sp else 16.sp
+    val speedTextSize = if (largeTextMode) 28.sp else 18.sp
 
     Card(
         modifier = Modifier
