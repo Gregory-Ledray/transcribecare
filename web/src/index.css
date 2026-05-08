@@ -5,26 +5,31 @@
   --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
   
   /* Color Palette */
-  --color-primary: #041627;
+  --color-primary: #1A2B3C;
   --color-on-primary: #ffffff;
-  --color-primary-container: #1a2b3c;
-  --color-on-primary-container: #8192a7;
+  --color-primary-container: #2d4a64;
+  --color-on-primary-container: #a8c4dc;
   
-  --color-secondary: #944a00;
+  --color-secondary: #E67E22;
   --color-on-secondary: #ffffff;
-  --color-secondary-container: #fc8f34;
-  --color-on-secondary-container: #663100;
+  --color-secondary-container: #f5b87a;
+  --color-on-secondary-container: #7a4210;
   
-  --color-background: #fbf9fa;
-  --color-surface: #fbf9fa;
-  --color-surface-container: #efedef;
-  --color-surface-container-high: #e9e7e9;
+  --color-tertiary: #38260B;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #6b4d1f;
+  --color-on-tertiary-container: #d4a85c;
+
+  --color-background: #faf8f6;
+  --color-surface: #faf8f6;
+  --color-surface-container: #f0ece8;
+  --color-surface-container-high: #e8e3de;
   
-  --color-on-background: #1b1c1d;
-  --color-on-surface: #1b1c1d;
-  --color-on-surface-variant: #44474c;
+  --color-on-background: #38260B;
+  --color-on-surface: #38260B;
+  --color-on-surface-variant: #5c4a2e;
   
-  --color-outline-variant: #c4c6cd;
+  --color-outline-variant: #c9b99e;
   --color-error: #ba1a1a;
   --color-on-error: #ffffff;
   --color-error-container: #ffdad6;
