@@ -111,9 +111,11 @@ export async function loadModel(
         reportProgress({ phase: 'validating', percent: 50 });
 
         const isValid = await validateIntegrity(cachedData, metadata.sha256);
+        const isLargeEnoughToBeTheModel = cachedData.length > 10_000;
 
-        if (isValid) {
+        if (isValid && isLargeEnoughToBeTheModel) {
           reportProgress({ phase: 'ready', percent: 100 });
+          console.debug(`modelLoader cachedData ${cachedData.length}`)
           return cachedData;
         }
       }
@@ -129,15 +131,21 @@ export async function loadModel(
     const response = await fetch(modelUrl);
 
     if (!response.ok) {
+      console.debug(`modelLoader cachedData modelDownloadFailure`)
       throw new Error(
         `Failed to download model: HTTP ${response.status} ${response.statusText}`
       );
     }
 
     const contentLength = Number(response.headers.get('content-length') || '0');
+    if (contentLength < 10_000) {
+      console.debug(`modelLoader modelLengthWasTooSmall`)
+      throw new Error('Model not found')
+    }
     const reader = response.body?.getReader();
 
     if (!reader) {
+      console.debug(`modelLoader cachedData modelReadError`)
       throw new Error('Failed to read model response: no readable stream');
     }
 
@@ -199,6 +207,7 @@ export async function loadModel(
     );
 
     reportProgress({ phase: 'ready', percent: 100 });
+    console.debug(`modelLoader downloadedAndReady ${modelData.length}`)
     return modelData;
   } catch (error) {
     const message =

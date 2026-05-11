@@ -38,6 +38,7 @@ export function createAudioProcessor(config: AudioProcessorConfig): AudioProcess
     onChunk: () => {},
 
     async start(): Promise<void> {
+      console.debug(`audioProcessor start`)
       // Request microphone access
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -89,6 +90,7 @@ export function createAudioProcessor(config: AudioProcessorConfig): AudioProcess
     },
 
     stop(): void {
+      console.debug(`audioProcessor stop`)
       // Disconnect the worklet node
       if (workletNode) {
         workletNode.disconnect();

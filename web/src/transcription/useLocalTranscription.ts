@@ -88,8 +88,10 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
       (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
+      console.debug('useLocalTranscription initializeFallback no SpeechRecognition API available')
       return false;
     }
+    console.debug('useLocalTranscription initializeFallback setup beginning')
 
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -153,6 +155,7 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
   const handleWorkerMessage = useCallback((event: MessageEvent<WorkerOutMessage>) => {
     const message = event.data;
 
+    console.debug(`useLocalTranscription handleWorkerMessage ${JSON.stringify(message)}`)
     switch (message.type) {
       case 'progress':
         setLoadProgress(message.progress);
@@ -228,6 +231,8 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
       return;
     }
 
+    console.debug(`useLocalTranscription initialize started`)
+
     setStatus('loading');
     setError(null);
     setLoadProgress({ phase: 'downloading', percent: 0 });
@@ -291,6 +296,7 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
 
     // --- Fallback path: use native SpeechRecognition ---
     if (usingFallbackRef.current && recognitionRef.current) {
+      console.debug(`useLocalTranscription start SpeechRecognition`)
       isRecordingIntentRef.current = true;
       // Move existing segments to 'past'
       setSegments((prev) =>
@@ -308,6 +314,7 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
     }
 
     // --- Local model path ---
+    console.debug(`useLocalTranscription start Gemma4`)
     if (!workerRef.current) {
       throw new Error('Cannot start recording: model not initialized');
     }
@@ -332,6 +339,8 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
   // ---------------------------------------------------------------------------
 
   const stop = useCallback((): void => {
+    console.debug(`useLocalTranscription stop`)
+
     // --- Fallback path: stop native SpeechRecognition ---
     if (usingFallbackRef.current && recognitionRef.current) {
       isRecordingIntentRef.current = false;
@@ -402,6 +411,8 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
   // ---------------------------------------------------------------------------
 
   const retry = useCallback((): void => {
+    console.debug(`useLocalTranscription retry`)
+
     // Clean up existing worker if any
     if (workerRef.current) {
       workerRef.current.terminate();
@@ -429,6 +440,7 @@ export function useLocalTranscription(): UseLocalTranscriptionReturn {
 
   useEffect(() => {
     return () => {
+      console.debug(`useLocalTranscription unmount cleanup`)
       // Stop audio processor
       if (audioProcessorRef.current) {
         audioProcessorRef.current.stop();
