@@ -1,5 +1,10 @@
 package com.transcribecare.app.service
 
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.SamplerConfig
+// import com.google.gson.JsonObject
+
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -197,7 +202,7 @@ class GemmaTranscriptionConsumer(
      * @param prompt The transcription prompt to retry.
      * @return true if recovery succeeded and result was delivered, false otherwise.
      */
-    private suspend fun recoverAndRetry(prompt: String): Boolean {
+    private suspend fun recoverAndRetry(prompt: com.google.ai.edge.litertlm.Contents): Boolean {
         val recoveryResult = engine.createNewConversation()
         if (recoveryResult.isFailure) {
             // Terminal failure — cease inference
@@ -249,14 +254,14 @@ class GemmaTranscriptionConsumer(
      * @param audioData The raw PCM samples to encode.
      * @return The formatted transcription prompt string.
      */
-    private fun buildPrompt(audioData: ShortArray): String {
+    private fun buildPrompt(audioData: ShortArray): com.google.ai.edge.litertlm.Contents {
         // Convert ShortArray to ByteArray (little-endian PCM 16-bit)
         val byteBuffer = ByteBuffer.allocate(audioData.size * 2)
         byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
         for (sample in audioData) {
             byteBuffer.putShort(sample)
         }
-        val encoded = Base64.encodeToString(byteBuffer.array(), Base64.NO_WRAP)
+//        val encoded = Base64.encodeToString(byteBuffer.array(), Base64.NO_WRAP)
 
         /*
         The Kiro-generated prompt is: 
@@ -275,9 +280,9 @@ Follow these specific instructions for formatting the answer:
 *   Only output the transcription, with no newlines.
 *   When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 3 instead of three.
 """
-        return Contents.of(
-            Content.AudioBytes(encoded),
-            Content.Text(stringPrompt)
+        return com.google.ai.edge.litertlm.Contents.of(
+            com.google.ai.edge.litertlm.Content.AudioBytes(byteBuffer.array()),
+            com.google.ai.edge.litertlm.Content.Text(stringPrompt)
         )
     }
 }

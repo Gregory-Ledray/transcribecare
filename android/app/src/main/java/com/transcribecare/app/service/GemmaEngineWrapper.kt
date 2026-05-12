@@ -106,7 +106,7 @@ class GemmaEngineWrapper private constructor(
      * @return [Result.success] with the model's response string, or [Result.failure]
      *         if the conversation is unavailable or inference throws an exception.
      */
-    suspend fun sendMessage(prompt: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(prompt: com.google.ai.edge.litertlm.Contents): Result<String> = withContext(Dispatchers.IO) {
         try {
             val activeConversation = conversation
                 ?: return@withContext Result.failure(
