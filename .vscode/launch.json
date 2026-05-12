@@ -25,6 +25,20 @@
         "webpack:///src/*": "${webRoot}/*"
       },
       "preLaunchTask": "web-dev-server"
+    },
+    {
+      "name": "Web: Debug Server (server.ts)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/web/node_modules/.bin/tsx",
+      "args": ["server.ts"],
+      "cwd": "${workspaceFolder}/web",
+      "console": "integratedTerminal",
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**"],
+      "env": {
+        "PORT": "8080"
+      }
     }
   ]
 }
