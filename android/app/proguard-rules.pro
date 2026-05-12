@@ -19,6 +19,12 @@
 -dontwarn androidx.compose.**
 -keep class androidx.compose.** { *; }
 
+# LiteRT-LM (com.google.ai.edge.litertlm)
+-keep class com.google.ai.edge.litertlm.** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
 # Keep annotations
 -keepattributes *Annotation*
 -keepattributes SourceFile,LineNumberTable

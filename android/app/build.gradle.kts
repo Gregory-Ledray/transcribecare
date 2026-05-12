@@ -22,6 +22,12 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        ndk {
+            // LiteRT-LM primarily supports arm64-v8a.
+            // Including x86_64 for emulator support if available in the library.
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     signingConfigs {

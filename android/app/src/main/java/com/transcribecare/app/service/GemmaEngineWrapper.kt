@@ -66,6 +66,16 @@ class GemmaEngineWrapper private constructor(
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
         _initState.value = InitState.Initializing
         try {
+            // Ensure native libraries are loaded. 
+            // While the SDK usually handles this, explicit loading can help diagnose issues
+            // or fix cases where the automatic loader fails.
+            try {
+                System.loadLibrary("litertlm_jni")
+                Log.d(TAG, "Native library litertlm_jni loaded successfully")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.w(TAG, "Manual load of litertlm_jni failed: ${e.message}. The SDK may still attempt to load it.")
+            }
+
             // Assemble model file from split assets
             val modelFile = ModelFileLoader.loadModel(context)
             val modelPath = modelFile.absolutePath
