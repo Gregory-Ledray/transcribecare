@@ -28,14 +28,51 @@ export function computeProgress(received: number, total: number): number {
 
 /**
  * Computes the SHA-256 hash of a Uint8Array using the Web Crypto API.
+ * For buffers exceeding the SubtleCrypto size limit (~2 GB), computes
+ * the hash incrementally in chunks using a WASM-free approach: hash
+ * fixed-size blocks and then hash the concatenated block hashes.
+ *
+ * Note: For very large buffers, this produces a "chunked hash" that is
+ * NOT the same as a standard SHA-256 of the full file. However, it is
+ * deterministic and sufficient for cache integrity validation (detecting
+ * corruption or partial writes).
  *
  * @param data - The binary data to hash
  * @returns Hex-encoded SHA-256 hash string
  */
 export async function computeSha256(data: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data as unknown as ArrayBuffer);
-  const hashArray = new Uint8Array(hashBuffer);
-  return Array.from(hashArray)
+  // SubtleCrypto.digest() fails for buffers > ~2 GB in Chrome.
+  // Use chunked hashing for large buffers.
+  const MAX_DIGEST_SIZE = 1.5 * 1024 * 1024 * 1024; // 1.5 GB safe limit
+
+  if (data.byteLength <= MAX_DIGEST_SIZE) {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data as unknown as ArrayBuffer);
+    const hashArray = new Uint8Array(hashBuffer);
+    return Array.from(hashArray)
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  // Chunked hashing: hash each chunk, then hash the concatenated hashes.
+  const CHUNK_SIZE = 512 * 1024 * 1024; // 512 MB per chunk
+  const chunkHashes: Uint8Array[] = [];
+
+  for (let pos = 0; pos < data.byteLength; pos += CHUNK_SIZE) {
+    const end = Math.min(pos + CHUNK_SIZE, data.byteLength);
+    const chunk = data.subarray(pos, end);
+    const chunkHash = await crypto.subtle.digest('SHA-256', chunk as unknown as ArrayBuffer);
+    chunkHashes.push(new Uint8Array(chunkHash));
+  }
+
+  // Concatenate all chunk hashes and hash the result
+  const combined = new Uint8Array(chunkHashes.length * 32);
+  for (let i = 0; i < chunkHashes.length; i++) {
+    combined.set(chunkHashes[i], i * 32);
+  }
+
+  const finalHash = await crypto.subtle.digest('SHA-256', combined.buffer);
+  const finalArray = new Uint8Array(finalHash);
+  return Array.from(finalArray)
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
 }
@@ -106,7 +143,36 @@ export async function loadModel(
 
       // Check version match
       if (metadata.version === modelVersion) {
-        const cachedData = new Uint8Array(await cachedResponse.arrayBuffer());
+        // Stream from cache into a pre-allocated buffer to avoid the
+        // double-allocation that .arrayBuffer() causes on large responses.
+        const cachedBody = cachedResponse.body;
+        if (!cachedBody) {
+          throw new Error('Cached response has no readable body');
+        }
+
+        const cachedSize = metadata.sizeBytes;
+
+        // Allocate with WebAssembly.Memory fallback for large models
+        const wasmPageSize = 65536;
+        const pages = Math.ceil(cachedSize / wasmPageSize);
+        let cachedData: Uint8Array;
+        try {
+          cachedData = new Uint8Array(cachedSize);
+        } catch {
+          const mem = new WebAssembly.Memory({ initial: pages, maximum: pages });
+          cachedData = new Uint8Array(mem.buffer, 0, cachedSize);
+        }
+
+        let cachedOffset = 0;
+        const cachedReader = cachedBody.getReader();
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await cachedReader.read();
+          if (done) break;
+          cachedData.set(value, cachedOffset);
+          cachedOffset += value.length;
+        }
 
         reportProgress({ phase: 'validating', percent: 50 });
 
@@ -119,16 +185,17 @@ export async function loadModel(
           return cachedData;
         }
       }
-
-      // Cache is corrupt or version mismatch — delete stale entries
-      await cache.delete(modelUrl);
-      await cache.delete(metadataKey(modelUrl));
     }
+    
+    // Cache is corrupt or version mismatch — delete stale entries
+    await cache.delete(modelUrl);
+    await cache.delete(metadataKey(modelUrl));
 
-    // Download from network — stream directly into Cache API to avoid
-    // holding the entire model in memory as a single contiguous buffer.
+    // Download from network — stream directly into a pre-allocated buffer.
     reportProgress({ phase: 'downloading', percent: 0 });
 
+    // Use a streaming fetch. We read headers first to get content-length,
+    // then allocate our buffer, then stream the body into it.
     const response = await fetch(modelUrl);
 
     if (!response.ok) {
@@ -149,45 +216,77 @@ export async function loadModel(
       throw new Error('Failed to read model response: no readable stream');
     }
 
-    // Stream the response body through a TransformStream that tracks progress
-    // and computes a SHA-256 hash incrementally, then pipe directly into cache.
-    let received = 0;
+    // Allocate the model buffer. For files near the V8 heap limit (~4 GB
+    // for workers), we use WebAssembly.Memory which allocates outside the
+    // normal JS heap and can handle larger contiguous buffers.
+    const wasmPageSize = 65536; // 64 KiB per WebAssembly page
+    const pagesNeeded = Math.ceil(contentLength / wasmPageSize);
+    let modelData: Uint8Array;
 
-    const progressTransform = new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        received += chunk.length;
-        reportProgress({
-          phase: 'downloading',
-          percent: computeProgress(received, contentLength),
-        });
-        controller.enqueue(chunk);
-      },
-    });
+    try {
+      // First try normal allocation (works if enough heap is available)
+      modelData = new Uint8Array(contentLength);
+    } catch {
+      // Fall back to WebAssembly.Memory which allocates outside V8 heap
+      const memory = new WebAssembly.Memory({
+        initial: pagesNeeded,
+        maximum: pagesNeeded,
+      });
+      modelData = new Uint8Array(memory.buffer, 0, contentLength);
+    }
 
-    // Pipe the fetch body through our progress tracker and store in cache
-    const streamedResponse = new Response(
-      response.body.pipeThrough(progressTransform),
-      {
-        headers: { 'Content-Type': 'application/octet-stream' },
-      }
-    );
+    let offset = 0;
 
-    await cache.put(modelUrl, streamedResponse);
+    // Stream the fetch body directly into our pre-allocated buffer.
+    // Each chunk is small (~64 KB from the network layer) so memory
+    // pressure during streaming is minimal.
+    const reader = response.body.getReader();
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      modelData.set(value, offset);
+      offset += value.length;
+      reportProgress({
+        phase: 'downloading',
+        percent: computeProgress(offset, contentLength),
+      });
+    }
 
     reportProgress({ phase: 'validating', percent: 0 });
 
-    // Read back from cache to compute hash and return the model bytes.
-    // The Cache API manages the storage so we avoid a double-allocation
-    // during download. The single allocation here is unavoidable since
-    // the LiteRT runtime requires a contiguous Uint8Array.
-    const storedResponse = await cache.match(modelUrl);
-    if (!storedResponse) {
-      throw new Error('Failed to read model from cache after download');
-    }
-    
-    reportProgress({ phase: 'validating', percent: 25 });
+    // Write the model to cache from our buffer for future loads.
+    // We create a ReadableStream that reads from our buffer in chunks
+    // to avoid passing the full ArrayBuffer (which would copy it).
+    const CACHE_CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB chunks
+    const cacheBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        let pos = 0;
+        function push() {
+          if (pos >= contentLength) {
+            controller.close();
+            return;
+          }
+          const end = Math.min(pos + CACHE_CHUNK_SIZE, contentLength);
+          controller.enqueue(modelData.slice(pos, end));
+          pos = end;
+          // Yield to avoid blocking
+          setTimeout(push, 0);
+        }
+        push();
+      },
+    });
 
-    const modelData = new Uint8Array(await storedResponse.arrayBuffer());
+    await cache.put(
+      modelUrl,
+      new Response(cacheBody, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(contentLength),
+        },
+      })
+    );
 
     reportProgress({ phase: 'validating', percent: 50 });
 
