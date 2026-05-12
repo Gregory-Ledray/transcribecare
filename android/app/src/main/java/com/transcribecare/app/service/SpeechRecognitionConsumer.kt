@@ -31,6 +31,11 @@ import android.speech.SpeechRecognizer
  * @param onFinalResult Callback invoked with finalized recognition text.
  * @param onError Callback invoked with a user-facing error message.
  */
+@Deprecated(
+    message = "Replaced by GemmaTranscriptionConsumer for on-device transcription",
+    replaceWith = ReplaceWith("GemmaTranscriptionConsumer"),
+    level = DeprecationLevel.WARNING
+)
 class SpeechRecognitionConsumer(
     private val context: Context,
     private val onPartialResult: (interimText: String) -> Unit,

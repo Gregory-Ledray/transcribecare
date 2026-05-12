@@ -158,9 +158,8 @@ fi
 #   * Put://the arguments in a file to avoid too long command lines.
 #     See https://github.com/gradle/gradle/issues/24559
 
-if [ -n "${GRADLE_OPTS}" ] ; then
-    set -- ${GRADLE_OPTS} "$@"
-fi
+# Note: GRADLE_OPTS is passed to the JVM via the eval set line below.
+# Do NOT prepend it to positional parameters as that causes task resolution errors.
 
 # Escape application args
 save () {

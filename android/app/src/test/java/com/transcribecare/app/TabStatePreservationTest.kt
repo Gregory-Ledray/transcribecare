@@ -2,7 +2,6 @@ package com.transcribecare.app
 
 import com.transcribecare.app.model.RecordingSession
 import com.transcribecare.app.viewmodel.HistoryViewModel
-import com.transcribecare.app.viewmodel.SettingsViewModel
 import io.kotest.common.ExperimentalKotest
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
@@ -91,6 +90,19 @@ class TabStatePreservationTest : FunSpec({
         }
     }
 
+    /**
+     * Lightweight test double that simulates SettingsViewModel's large text mode behavior
+     * without requiring an Application context or SharedPreferences.
+     */
+    class TestSettingsState {
+        private val _largeTextMode = MutableStateFlow(false)
+        val largeTextMode: StateFlow<Boolean> = _largeTextMode.asStateFlow()
+
+        fun setLargeTextMode(enabled: Boolean) {
+            _largeTextMode.value = enabled
+        }
+    }
+
     val arbSearchQuery = Arb.string(0..50)
     val arbRecording = Arb.boolean()
     val arbLargeText = Arb.boolean()
@@ -118,7 +130,7 @@ class TabStatePreservationTest : FunSpec({
             // Create ViewModels (simulating navigation-scoped instances that survive tab switches)
             val homeViewModel = TestHomeState()
             val historyState = TestHistoryState()
-            val settingsViewModel = SettingsViewModel()
+            val settingsViewModel = TestSettingsState()
 
             // Track expected state
             var expectedSearchQuery = ""
@@ -170,7 +182,7 @@ class TabStatePreservationTest : FunSpec({
             // Create ViewModels
             val homeViewModel = TestHomeState()
             val historyState = TestHistoryState()
-            val settingsViewModel = SettingsViewModel()
+            val settingsViewModel = TestSettingsState()
 
             // Set state in each ViewModel
             historyState.search(searchQuery)

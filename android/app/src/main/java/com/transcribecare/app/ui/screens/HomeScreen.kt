@@ -30,10 +30,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
@@ -54,8 +57,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.transcribecare.app.model.SegmentType
 import com.transcribecare.app.model.TranscriptSegment
+import com.transcribecare.app.service.ModelState
 import com.transcribecare.app.viewmodel.HomeViewModel
 import com.transcribecare.app.viewmodel.SettingsViewModel
 
@@ -76,8 +81,23 @@ fun HomeScreen(
     val segments by homeViewModel.segments.collectAsState()
     val interimText by homeViewModel.interimText.collectAsState()
     val largeTextMode by settingsViewModel.largeTextMode.collectAsState()
+    val modelState by homeViewModel.modelState.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val view = LocalView.current
+
+    // Accessibility announcements for model state transitions
+    LaunchedEffect(modelState) {
+        when (val state = modelState) {
+            is ModelState.Ready -> {
+                view.announceForAccessibility("Transcription model ready")
+            }
+            is ModelState.Error -> {
+                view.announceForAccessibility(state.message)
+            }
+            else -> { /* No announcement for Loading/Idle */ }
+        }
+    }
 
     // Permission state management
     var showRationaleDialog by remember { mutableStateOf(false) }
@@ -106,6 +126,19 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            // Model loading state indicator
+            when (val state = modelState) {
+                is ModelState.Loading, is ModelState.Idle -> {
+                    ModelLoadingIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                is ModelState.Error -> {
+                    ModelErrorText(message = state.message)
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                is ModelState.Ready -> { /* No indicator needed */ }
+            }
+
             // Live transcript display (above the button, takes available space)
             TranscriptDisplay(
                 segments = segments,
@@ -120,6 +153,7 @@ fun HomeScreen(
             RecordingButton(
                 isRecording = isRecording,
                 largeTextMode = largeTextMode,
+                enabled = modelState is ModelState.Ready || isRecording,
             ) {
                 if (isRecording) {
                     homeViewModel.stopRecording()
@@ -242,17 +276,21 @@ fun RecordingStatusBanner(isVisible: Boolean, largeTextMode: Boolean = false) {
 fun RecordingButton(
     isRecording: Boolean,
     largeTextMode: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     val buttonText = if (isRecording) "Stop Recording" else "Start Recording"
     val buttonDescription = if (isRecording) {
         "Stop recording. Double tap to stop the current recording session."
+    } else if (!enabled) {
+        "Start recording. Button disabled while transcription model is loading."
     } else {
         "Start recording. Double tap to begin a new recording session."
     }
 
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier
             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             .widthIn(min = 200.dp)
@@ -277,6 +315,56 @@ fun RecordingButton(
             fontWeight = FontWeight.SemiBold
         )
     }
+}
+
+
+/**
+ * Loading indicator displayed while the transcription model is being prepared.
+ * Meets minimum 48x48dp size requirement and provides TalkBack content description.
+ */
+@Composable
+fun ModelLoadingIndicator() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier
+                .size(48.dp)
+                .semantics {
+                    contentDescription = "Preparing transcription model"
+                },
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Preparing transcription model…",
+            fontSize = 16.sp,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+/**
+ * Error text displayed when model loading fails.
+ * Uses [MaterialTheme.colorScheme.error] for sufficient contrast (4.5:1 ratio).
+ */
+@Composable
+fun ModelErrorText(message: String) {
+    Text(
+        text = message,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium,
+        color = MaterialTheme.colorScheme.error,
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .semantics {
+                contentDescription = "Model error: $message"
+            }
+    )
 }
 
 
