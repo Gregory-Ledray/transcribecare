@@ -1,11 +1,5 @@
 package com.transcribecare.app.service
 
-import com.google.ai.edge.litertlm.ConversationConfig
-import com.google.ai.edge.litertlm.Message
-import com.google.ai.edge.litertlm.SamplerConfig
-// import com.google.gson.JsonObject
-
-import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -248,32 +242,16 @@ class GemmaTranscriptionConsumer(
     /**
      * Builds the transcription prompt from raw PCM audio data.
      *
-     * Encodes the PCM samples as base64 for inclusion in the text prompt
-     * sent to the Gemma 4 E2B model.
+     * Wraps the PCM samples in a WAV container so the miniaudio decoder in
+     * LiteRT-LM can parse sample rate, bit depth, and channel count from the
+     * header. Sends the WAV bytes alongside a text prompt to the Gemma 4 E2B model.
      *
      * @param audioData The raw PCM samples to encode.
-     * @return The formatted transcription prompt string.
+     * @return The formatted transcription [Contents] for the model.
      */
     private fun buildPrompt(audioData: ShortArray): com.google.ai.edge.litertlm.Contents {
-        // Convert ShortArray to ByteArray (little-endian PCM 16-bit)
-        val byteBuffer = ByteBuffer.allocate(audioData.size * 2)
-        byteBuffer.order(ByteOrder.LITTLE_ENDIAN)
-        for (sample in audioData) {
-            byteBuffer.putShort(sample)
-        }
-//        val encoded = Base64.encodeToString(byteBuffer.array(), Base64.NO_WRAP)
+        val wavBytes = pcmToWav(audioData, AudioConfig.SAMPLE_RATE, AudioConfig.CHANNEL_COUNT)
 
-        /*
-        The Kiro-generated prompt is: 
-        Transcribe the following audio. Output only the spoken words, no timestamps or labels.\n[$encoded]"
-
-        Recommended Gemma prompt is as follows https://ai.google.dev/gemma/docs/core/model_card_4#6_audio
-        Transcribe the following speech segment in English into English text.
-
-        Follow these specific instructions for formatting the answer:
-        *   Only output the transcription, with no newlines.
-        *   When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 3 instead of three.
-        */
         val stringPrompt = """Transcribe the following speech segment in English into English text.
 
 Follow these specific instructions for formatting the answer:
@@ -281,8 +259,70 @@ Follow these specific instructions for formatting the answer:
 *   When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 3 instead of three.
 """
         return com.google.ai.edge.litertlm.Contents.of(
-            com.google.ai.edge.litertlm.Content.AudioBytes(byteBuffer.array()),
+            com.google.ai.edge.litertlm.Content.AudioBytes(wavBytes),
             com.google.ai.edge.litertlm.Content.Text(stringPrompt)
         )
+    }
+
+    /**
+     * Wraps raw PCM 16-bit samples in a standard WAV (RIFF) container.
+     *
+     * Produces a valid WAV file byte array with a 44-byte header followed by
+     * the PCM data. This allows the miniaudio decoder to correctly identify
+     * the audio format without external metadata.
+     *
+     * @param samples The PCM 16-bit samples.
+     * @param sampleRate The sample rate in Hz (e.g., 44100).
+     * @param channels The number of audio channels (e.g., 1 for mono).
+     * @return A ByteArray containing the complete WAV file.
+     */
+    private fun pcmToWav(samples: ShortArray, sampleRate: Int, channels: Int): ByteArray {
+        val bitsPerSample = 16
+        val dataSize = samples.size * 2 // 2 bytes per 16-bit sample
+        val headerSize = 44
+        val fileSize = headerSize + dataSize
+
+        val buffer = ByteBuffer.allocate(fileSize)
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+
+        // RIFF header
+        buffer.put('R'.code.toByte())
+        buffer.put('I'.code.toByte())
+        buffer.put('F'.code.toByte())
+        buffer.put('F'.code.toByte())
+        buffer.putInt(fileSize - 8) // File size minus RIFF header (8 bytes)
+
+        // WAVE identifier
+        buffer.put('W'.code.toByte())
+        buffer.put('A'.code.toByte())
+        buffer.put('V'.code.toByte())
+        buffer.put('E'.code.toByte())
+
+        // fmt sub-chunk
+        buffer.put('f'.code.toByte())
+        buffer.put('m'.code.toByte())
+        buffer.put('t'.code.toByte())
+        buffer.put(' '.code.toByte())
+        buffer.putInt(16) // Sub-chunk size (16 for PCM)
+        buffer.putShort(1) // Audio format (1 = PCM)
+        buffer.putShort(channels.toShort()) // Number of channels
+        buffer.putInt(sampleRate) // Sample rate
+        buffer.putInt(sampleRate * channels * bitsPerSample / 8) // Byte rate
+        buffer.putShort((channels * bitsPerSample / 8).toShort()) // Block align
+        buffer.putShort(bitsPerSample.toShort()) // Bits per sample
+
+        // data sub-chunk
+        buffer.put('d'.code.toByte())
+        buffer.put('a'.code.toByte())
+        buffer.put('t'.code.toByte())
+        buffer.put('a'.code.toByte())
+        buffer.putInt(dataSize) // Data size
+
+        // PCM sample data
+        for (sample in samples) {
+            buffer.putShort(sample)
+        }
+
+        return buffer.array()
     }
 }

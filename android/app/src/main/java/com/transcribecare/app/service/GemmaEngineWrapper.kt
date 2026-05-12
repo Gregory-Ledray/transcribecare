@@ -73,6 +73,8 @@ class GemmaEngineWrapper private constructor(
             // Create engine configuration
             val config = EngineConfig(
                 modelPath = modelPath,
+                // Tried NPU. Saw: https://github.com/google-ai-edge/LiteRT/issues/4571
+                // Tried GPU. Saw: https://github.com/google-ai-edge/gallery/issues/557
                 backend = Backend.CPU(),
                 cacheDir = context.cacheDir.absolutePath
             )
