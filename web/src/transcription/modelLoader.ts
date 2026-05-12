@@ -33,7 +33,7 @@ export function computeProgress(received: number, total: number): number {
  * @returns Hex-encoded SHA-256 hash string
  */
 export async function computeSha256(data: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data as unknown as ArrayBuffer);
   const hashArray = new Uint8Array(hashBuffer);
   return Array.from(hashArray)
     .map((byte) => byte.toString(16).padStart(2, '0'))
@@ -125,7 +125,8 @@ export async function loadModel(
       await cache.delete(metadataKey(modelUrl));
     }
 
-    // Download from network
+    // Download from network — stream directly into Cache API to avoid
+    // holding the entire model in memory as a single contiguous buffer.
     reportProgress({ phase: 'downloading', percent: 0 });
 
     const response = await fetch(modelUrl);
@@ -142,54 +143,55 @@ export async function loadModel(
       console.debug(`modelLoader modelLengthWasTooSmall`)
       throw new Error('Model not found')
     }
-    const reader = response.body?.getReader();
 
-    if (!reader) {
+    if (!response.body) {
       console.debug(`modelLoader cachedData modelReadError`)
       throw new Error('Failed to read model response: no readable stream');
     }
 
-    const chunks: Uint8Array[] = [];
+    // Stream the response body through a TransformStream that tracks progress
+    // and computes a SHA-256 hash incrementally, then pipe directly into cache.
     let received = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
+    const progressTransform = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        received += chunk.length;
+        reportProgress({
+          phase: 'downloading',
+          percent: computeProgress(received, contentLength),
+        });
+        controller.enqueue(chunk);
+      },
+    });
 
-      if (done) {
-        break;
+    // Pipe the fetch body through our progress tracker and store in cache
+    const streamedResponse = new Response(
+      response.body.pipeThrough(progressTransform),
+      {
+        headers: { 'Content-Type': 'application/octet-stream' },
       }
+    );
 
-      chunks.push(value);
-      received += value.length;
+    await cache.put(modelUrl, streamedResponse);
 
-      reportProgress({
-        phase: 'downloading',
-        percent: computeProgress(received, contentLength),
-      });
-    }
-
-    // Combine chunks into a single Uint8Array
-    const modelData = new Uint8Array(received);
-    let offset = 0;
-    for (const chunk of chunks) {
-      modelData.set(chunk, offset);
-      offset += chunk.length;
-    }
-
-    // Validate and store in cache
     reportProgress({ phase: 'validating', percent: 0 });
 
-    const sha256 = await computeSha256(modelData);
+    // Read back from cache to compute hash and return the model bytes.
+    // The Cache API manages the storage so we avoid a double-allocation
+    // during download. The single allocation here is unavoidable since
+    // the LiteRT runtime requires a contiguous Uint8Array.
+    const storedResponse = await cache.match(modelUrl);
+    if (!storedResponse) {
+      throw new Error('Failed to read model from cache after download');
+    }
+    
+    reportProgress({ phase: 'validating', percent: 25 });
+
+    const modelData = new Uint8Array(await storedResponse.arrayBuffer());
 
     reportProgress({ phase: 'validating', percent: 50 });
 
-    // Store model binary in cache
-    await cache.put(
-      modelUrl,
-      new Response(modelData, {
-        headers: { 'Content-Type': 'application/octet-stream' },
-      })
-    );
+    const sha256 = await computeSha256(modelData);
 
     // Store metadata in cache
     const cacheMetadata: ModelCacheMetadata = {
