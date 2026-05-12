@@ -76,6 +76,10 @@ android {
 }
 
 dependencies {
+    // LiteRT-LM (on-device LLM inference)
+    // com.google.ai.edge.litertlm:litertlm-android:latest.release
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
+
     // Jetpack Compose BOM
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
     implementation(composeBom)
