@@ -25,7 +25,9 @@ import { createAudioProcessor, type AudioProcessorHandle } from './audioProcesso
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MODEL_CONFIG: ModelLoaderConfig = {
-  modelUrl: 'https://www.treatcost.com/models/gemma-4-E2B-it.litertlm',
+  modelUrl: window.location.hostname === 'localhost'
+    ? `${window.location.protocol}//${window.location.hostname}:8080/models/gemma-4-E2B-it.litertlm`
+    : 'https://www.treatcost.com/models/gemma-4-E2B-it.litertlm',
   modelVersion: '1.0.0',
   cacheName: 'transcribecare-model-v1',
 };
