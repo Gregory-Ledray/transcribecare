@@ -81,9 +81,15 @@ class GemmaEngineWrapper private constructor(
                 val modelPath = modelFile.absolutePath
 
                 // Create engine configuration.
+                // For backend:
                 // Using GPU as the main backend can be more stable and faster for multimodal models.
                 // LiteRT-LM will fall back to CPU if GPU is unavailable or unsupported for specific ops.
                 // Explicitly setting audioBackend to CPU can help stabilize audio preprocessing.
+                //
+                // For audioBackend:
+                // Tried NPU. Saw it wasn't allowed. Tried GPU. "Failed to create engine:
+                // INVALID_ARGUMENT: Audio backend constraint mismatch. Model requires one
+                // of [cpu] but Audio backend is GPU
                 val config = EngineConfig(
                     modelPath = modelPath,
                     backend = Backend.GPU(),
