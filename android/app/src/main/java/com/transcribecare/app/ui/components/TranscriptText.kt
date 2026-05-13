@@ -1,11 +1,14 @@
 package com.transcribecare.app.ui.components
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -16,6 +19,9 @@ import com.transcribecare.app.model.TranscriptSegment
 /**
  * Shared composable that renders transcript segments as a single continuous
  * block of text without line breaks between segments.
+ *
+ * The text is vertically scrollable and automatically scrolls to the bottom
+ * when new content is appended, keeping the most recent transcription in view.
  *
  * Applies appropriate line height (1.5x font size) to prevent overlapping
  * lines when text wraps, especially in large text mode.
@@ -48,9 +54,17 @@ fun TranscriptText(
         }
     }
 
-    Box(
+    val scrollState = rememberScrollState()
+
+    // Auto-scroll to bottom when transcript content changes
+    LaunchedEffect(fullTranscript) {
+        scrollState.animateScrollTo(scrollState.maxValue)
+    }
+
+    Column(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(scrollState)
             .semantics {
                 contentDescription = accessibilityLabel
             }
