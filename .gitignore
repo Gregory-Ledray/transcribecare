@@ -28,6 +28,7 @@ android/app/*.iml
 android/keystore.properties
 android/*.jks
 android/*.keystore
+android/app/release
 
 # ─── iOS ──────────────────────────────────────────────
 ios/DerivedData/
