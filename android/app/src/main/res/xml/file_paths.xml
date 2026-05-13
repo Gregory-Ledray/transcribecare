@@ -9,4 +9,9 @@
     <files-path
         name="recordings_internal"
         path="recordings/" />
+
+    <!-- Cache directory for temporary share files (transcripts) -->
+    <cache-path
+        name="shared_transcripts"
+        path="shared_transcripts/" />
 </paths>
