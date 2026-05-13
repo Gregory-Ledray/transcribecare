@@ -137,9 +137,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             onError = { message -> _error.value = message }
         )
 
+        // Clear conversation history from any prior session
+        val engineInstance = GemmaEngineWrapper.getInstance(getApplication())
+        engineInstance.clearHistory()
+
         // Create GemmaTranscriptionConsumer with partial/final/error callbacks
         val gemma = GemmaTranscriptionConsumer(
-            engine = GemmaEngineWrapper.getInstance(getApplication()),
+            engine = engineInstance,
             onPartialResult = { text -> onInterimResult(text) },
             onFinalResult = { text -> onFinalResult(text) },
             onError = { message -> _error.value = message },

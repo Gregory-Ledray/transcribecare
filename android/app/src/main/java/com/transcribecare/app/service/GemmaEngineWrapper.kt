@@ -3,10 +3,10 @@ package com.transcribecare.app.service
 import android.content.Context
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,11 +16,16 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Singleton wrapper around the LiteRT-LM [Engine] and [Conversation].
+ * Singleton wrapper around the LiteRT-LM [Engine].
  *
  * Manages the full lifecycle of the on-device Gemma 4 E2B model:
- * initialization, message inference, conversation management, and resource cleanup.
+ * initialization, message inference, and resource cleanup.
  * Uses double-checked locking to ensure a single instance across the application.
+ *
+ * Each inference call creates a short-lived conversation seeded with the preceding
+ * [MAX_HISTORY_SIZE] prompt/response exchanges. This gives the model awareness of
+ * recent transcription context (improving coherence across chunks) while bounding
+ * context window usage to prevent overflow during long recording sessions.
  *
  * @param context Application context for model path and cache directory access.
  */
@@ -51,8 +56,42 @@ class GemmaEngineWrapper private constructor(
     val initState: StateFlow<InitState> = _initState.asStateFlow()
 
     private var engine: Engine? = null
-    private var conversation: Conversation? = null
     private val mutex = Mutex()
+
+    /**
+     * Rolling history of recent prompt/response pairs for conversation context.
+     *
+     * Each entry is a pair of (user prompt [Contents], model response text).
+     * Limited to [MAX_HISTORY_SIZE] entries to prevent context window overflow
+     * while still giving the model awareness of recent transcription context.
+     */
+    private val conversationHistory = ArrayDeque<Pair<Contents, String>>()
+
+    companion object {
+        private const val TAG = "GemmaEngineWrapper"
+        private const val MAX_HISTORY_SIZE = 2
+        private val lock = Any()
+
+        @Volatile
+        private var instance: GemmaEngineWrapper? = null
+
+        /**
+         * Returns the singleton [GemmaEngineWrapper] instance, creating it if necessary.
+         *
+         * Uses double-checked locking for thread-safe lazy initialization.
+         *
+         * @param context Context used for model path and cache directory access.
+         *                The application context is extracted to avoid leaking activities.
+         * @return The singleton [GemmaEngineWrapper] instance.
+         */
+        fun getInstance(context: Context): GemmaEngineWrapper {
+            return instance ?: synchronized(lock) {
+                instance ?: GemmaEngineWrapper(context.applicationContext).also {
+                    instance = it
+                }
+            }
+        }
+    }
 
     /**
      * Initializes the LiteRT-LM engine with the assembled model file.
@@ -101,11 +140,11 @@ class GemmaEngineWrapper private constructor(
                 val newEngine = Engine(config)
                 newEngine.initialize()
                 
-                // Create initial conversation before assigning to avoid race
-                val newConversation = newEngine.createConversation()
+                // Verify the engine can create conversations by doing a test creation
+                val testConversation = newEngine.createConversation()
+                testConversation.close()
                 
                 engine = newEngine
-                conversation = newConversation
 
                 _initState.value = InitState.Ready
                 Log.d(TAG, "Engine initialized successfully with GPU backend and CPU audio")
@@ -120,21 +159,26 @@ class GemmaEngineWrapper private constructor(
     }
 
     /**
-     * Sends a transcription prompt to the active [Conversation] and returns the response.
+     * Sends a transcription prompt with short conversation history for context.
+     *
+     * Creates a fresh conversation, replays the last [MAX_HISTORY_SIZE] prompt/response
+     * pairs to give the model awareness of recent transcription context, then sends
+     * the current prompt. The conversation is closed after use to prevent unbounded
+     * context growth during long recording sessions.
      *
      * This method is safe to call from any coroutine context as it switches
      * to [Dispatchers.IO] internally.
      *
-     * @param prompt The text prompt to send to the model.
+     * @param prompt The transcription prompt to send to the model.
      * @return [Result.success] with the model's response string, or [Result.failure]
-     *         if the conversation is unavailable or inference throws an exception.
+     *         if the engine is unavailable or inference throws an exception.
      */
-    suspend fun sendMessage(prompt: com.google.ai.edge.litertlm.Contents): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(prompt: Contents): Result<String> = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                val activeConversation = conversation
+                val activeEngine = engine
                     ?: return@withLock Result.failure(
-                        IllegalStateException("No active conversation. Engine may not be initialized.")
+                        IllegalStateException("Engine is not initialized.")
                     )
                 
                 if (_initState.value !is InitState.Ready) {
@@ -143,15 +187,35 @@ class GemmaEngineWrapper private constructor(
                     )
                 }
 
-                val response = activeConversation.sendMessage(prompt)
-                
-                // Extract text from the response message parts
-                val responseText = response.contents.contents
-                    .filterIsInstance<Content.Text>()
-                    .joinToString("") { it.text }
-                    .trim()
-                
-                Result.success(responseText)
+                // Create a conversation and replay recent history for context
+                val conversation = activeEngine.createConversation()
+                try {
+                    // Replay preceding exchanges so the model has short-term context
+                    for ((historyPrompt, _) in conversationHistory) {
+                        conversation.sendMessage(historyPrompt)
+                    }
+
+                    // Send the current prompt
+                    val response = conversation.sendMessage(prompt)
+                    
+                    // Extract text from the response message parts
+                    val responseText = response.contents.contents
+                        .filterIsInstance<Content.Text>()
+                        .joinToString("") { it.text }
+                        .trim()
+
+                    // Update rolling history
+                    if (responseText.isNotEmpty()) {
+                        conversationHistory.addLast(prompt to responseText)
+                        while (conversationHistory.size > MAX_HISTORY_SIZE) {
+                            conversationHistory.removeFirst()
+                        }
+                    }
+                    
+                    Result.success(responseText)
+                } finally {
+                    conversation.close()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "sendMessage failed: ${e.message}", e)
                 Result.failure(e)
@@ -160,11 +224,10 @@ class GemmaEngineWrapper private constructor(
     }
 
     /**
-     * Closes the current [Conversation] and creates a new one from the engine.
+     * Verifies the engine is healthy by attempting to create and close a test conversation.
+     * Also clears the conversation history to provide a clean slate after recovery.
      *
-     * Used for conversation recovery when the existing conversation becomes invalid.
-     *
-     * @return [Result.success] if a new conversation was created, or [Result.failure]
+     * @return [Result.success] if the engine is healthy, or [Result.failure]
      *         if the engine is unavailable or conversation creation fails.
      */
     suspend fun createNewConversation(): Result<Unit> = withContext(Dispatchers.IO) {
@@ -174,24 +237,33 @@ class GemmaEngineWrapper private constructor(
                     ?: return@withLock Result.failure(
                         IllegalStateException("Engine is not initialized.")
                     )
-                // Close existing conversation
-                conversation?.close()
-                conversation = null
-
-                // Create a new conversation
-                conversation = activeEngine.createConversation()
-                Log.d(TAG, "New conversation created successfully")
+                // Verify engine health by creating and immediately closing a conversation
+                val testConversation = activeEngine.createConversation()
+                testConversation.close()
+                // Clear history so recovery starts with a clean context
+                conversationHistory.clear()
+                Log.d(TAG, "Engine health check passed, conversation history cleared")
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to create new conversation: ${e.message}", e)
+                Log.e(TAG, "Engine health check failed: ${e.message}", e)
                 Result.failure(e)
             }
         }
     }
 
     /**
-     * Releases all engine resources: closes the conversation, closes the engine,
-     * and nulls out the singleton instance.
+     * Clears the conversation history buffer.
+     *
+     * Should be called when starting a new recording session to prevent context
+     * from a previous session bleeding into the new one.
+     */
+    fun clearHistory() {
+        conversationHistory.clear()
+        Log.d(TAG, "Conversation history cleared")
+    }
+
+    /**
+     * Releases all engine resources: closes the engine and nulls out the singleton instance.
      *
      * After calling this method, [getInstance] will create a fresh instance.
      */
@@ -203,11 +275,7 @@ class GemmaEngineWrapper private constructor(
             // We use a dedicated thread to ensure cleanup happens even if the app is shutting down.
             Thread {
                 kotlin.runCatching {
-                    // We don't use mutex.withLock here because it's suspend and we're in a regular thread,
-                    // but since we nulled instance, no new calls will start.
-                    // We also check if the conversation handle is still alive before closing (via SDK internal check).
-                    conversation?.close()
-                    conversation = null
+                    conversationHistory.clear()
                     engine?.close()
                     engine = null
                     _initState.value = InitState.Uninitialized
@@ -219,28 +287,4 @@ class GemmaEngineWrapper private constructor(
         }
     }
 
-    companion object {
-        private const val TAG = "GemmaEngineWrapper"
-        private val lock = Any()
-
-        @Volatile
-        private var instance: GemmaEngineWrapper? = null
-
-        /**
-         * Returns the singleton [GemmaEngineWrapper] instance, creating it if necessary.
-         *
-         * Uses double-checked locking for thread-safe lazy initialization.
-         *
-         * @param context Context used for model path and cache directory access.
-         *                The application context is extracted to avoid leaking activities.
-         * @return The singleton [GemmaEngineWrapper] instance.
-         */
-        fun getInstance(context: Context): GemmaEngineWrapper {
-            return instance ?: synchronized(lock) {
-                instance ?: GemmaEngineWrapper(context.applicationContext).also {
-                    instance = it
-                }
-            }
-        }
-    }
 }
