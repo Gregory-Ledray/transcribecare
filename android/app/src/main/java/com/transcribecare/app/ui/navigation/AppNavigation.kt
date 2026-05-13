@@ -214,6 +214,7 @@ fun AppNavigation() {
                     SessionDetailScreen(
                         session = it,
                         settingsViewModel = settingsViewModel,
+                        onBackClick = { navController.popBackStack() },
                     ) {
                         val intent = shareService.createShareIntent(it, context)
                         val chooser = Intent.createChooser(intent, "Share Session")

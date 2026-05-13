@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -38,12 +39,14 @@ import com.transcribecare.app.viewmodel.SettingsViewModel
  *
  * @param session The recording session to display.
  * @param settingsViewModel ViewModel providing user preferences like large text mode.
+ * @param onBackClick Callback invoked when the user taps the back button.
  * @param onShareClick Callback invoked when the user taps the share button.
  */
 @Composable
 fun SessionDetailScreen(
     session: RecordingSession,
     settingsViewModel: SettingsViewModel,
+    onBackClick: () -> Unit = {},
     onShareClick: () -> Unit,
 ) {
     val largeTextMode by settingsViewModel.largeTextMode.collectAsState()
@@ -59,6 +62,30 @@ fun SessionDetailScreen(
                 contentDescription = "Session detail for ${session.title}"
             }
     ) {
+        // Back button row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .semantics {
+                        contentDescription = "Navigate back to history"
+                    }
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
         // Session header
         SessionDetailHeader(
             session = session,
