@@ -2,6 +2,7 @@ package com.transcribecare.app.service
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.transcribecare.app.model.RecordingSession
@@ -53,46 +54,75 @@ class ShareService {
      * Creates a share Intent for the given recording session.
      *
      * If the session has an associated audio file that exists on disk, the intent
-     * includes the audio file URI via FileProvider and uses "audio/wav" MIME type
-     * for compatibility with messaging apps (WhatsApp, SMS/MMS, etc.).
-     * The transcript text is included as EXTRA_TEXT alongside the audio attachment.
+     * uses ACTION_SEND_MULTIPLE to share both the audio file and a transcript
+     * text file as separate attachments. This ensures apps like WhatsApp receive
+     * both the audio and the transcript (WhatsApp drops EXTRA_TEXT when an audio
+     * stream is attached via ACTION_SEND).
      *
-     * If no audio file is available, shares plain text only.
+     * If no audio file is available, shares plain text only via ACTION_SEND.
      *
      * @param session The recording session to share.
      * @param context The Android context used for FileProvider URI resolution.
-     * @return An ACTION_SEND Intent configured with the session's share content.
+     * @return An Intent configured with the session's share content.
      */
     fun createShareIntent(session: RecordingSession, context: Context): Intent {
         val shareText = formatShareText(session)
-
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            putExtra(Intent.EXTRA_TEXT, shareText)
-            putExtra(Intent.EXTRA_SUBJECT, session.title)
-        }
+        val authority = "${context.packageName}.fileprovider"
 
         val audioFilePath = session.audioFilePath
         if (audioFilePath != null) {
             val audioFile = File(audioFilePath)
             if (audioFile.exists()) {
                 try {
-                    val authority = "${context.packageName}.fileprovider"
                     val audioUri = FileProvider.getUriForFile(context, authority, audioFile)
-                    intent.type = "audio/wav"
-                    intent.putExtra(Intent.EXTRA_STREAM, audioUri)
-                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    val transcriptFile = createTranscriptFile(session, context)
+                    val transcriptUri = FileProvider.getUriForFile(context, authority, transcriptFile)
+
+                    val uris = ArrayList<Uri>().apply {
+                        add(audioUri)
+                        add(transcriptUri)
+                    }
+
+                    return Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                        type = "*/*"
+                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                        putExtra(Intent.EXTRA_SUBJECT, session.title)
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
                 } catch (e: IllegalArgumentException) {
-                    // FileProvider could not resolve the path — fall back to text-only
-                    Log.w(TAG, "Failed to create URI for audio file: ${e.message}")
-                    intent.type = "text/plain"
+                    Log.w(TAG, "Failed to create URI for share files: ${e.message}")
                 }
-            } else {
-                intent.type = "text/plain"
             }
-        } else {
-            intent.type = "text/plain"
         }
 
-        return intent
+        // Fallback: text-only share when no audio file is available
+        return Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, shareText)
+            putExtra(Intent.EXTRA_SUBJECT, session.title)
+        }
+    }
+
+    /**
+     * Creates a temporary .txt file containing the formatted transcript for sharing.
+     *
+     * The file is written to the app's cache directory under a "shared_transcripts"
+     * subfolder so it can be served via FileProvider.
+     *
+     * @param session The recording session whose transcript to write.
+     * @param context The Android context for accessing the cache directory.
+     * @return The created transcript File.
+     */
+    private fun createTranscriptFile(session: RecordingSession, context: Context): File {
+        val shareDir = File(context.cacheDir, "shared_transcripts")
+        if (!shareDir.exists()) {
+            shareDir.mkdirs()
+        }
+
+        val sanitizedTitle = session.title.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val transcriptFile = File(shareDir, "${sanitizedTitle}_transcript.txt")
+        transcriptFile.writeText(formatShareText(session))
+        return transcriptFile
     }
 }
