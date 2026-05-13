@@ -59,13 +59,13 @@ class GemmaEngineWrapper private constructor(
     private val mutex = Mutex()
 
     /**
-     * Rolling history of recent prompt/response pairs for conversation context.
+     * Rolling history of recent transcription results for conversation context.
      *
-     * Each entry is a pair of (user prompt [Contents], model response text).
-     * Limited to [MAX_HISTORY_SIZE] entries to prevent context window overflow
-     * while still giving the model awareness of recent transcription context.
+     * Stores the model's response text from the last [MAX_HISTORY_SIZE] inference
+     * calls. This text is prepended to the current prompt so the model has
+     * awareness of recent transcription without replaying full audio prompts.
      */
-    private val conversationHistory = ArrayDeque<Pair<Contents, String>>()
+    private val conversationHistory = ArrayDeque<String>()
 
     companion object {
         private const val TAG = "GemmaEngineWrapper"
@@ -159,12 +159,15 @@ class GemmaEngineWrapper private constructor(
     }
 
     /**
-     * Sends a transcription prompt with short conversation history for context.
+     * Sends a transcription prompt with short conversation history as text context.
      *
-     * Creates a fresh conversation, replays the last [MAX_HISTORY_SIZE] prompt/response
-     * pairs to give the model awareness of recent transcription context, then sends
-     * the current prompt. The conversation is closed after use to prevent unbounded
-     * context growth during long recording sessions.
+     * Creates a fresh conversation and sends a single combined prompt that includes
+     * the recent transcription history (as a text prefix) alongside the current audio.
+     * This avoids multiple round-trips to the model while still providing short-term
+     * context for improved coherence across chunks.
+     *
+     * The conversation is closed after use to prevent unbounded context growth
+     * during long recording sessions.
      *
      * This method is safe to call from any coroutine context as it switches
      * to [Dispatchers.IO] internally.
@@ -187,16 +190,13 @@ class GemmaEngineWrapper private constructor(
                     )
                 }
 
-                // Create a conversation and replay recent history for context
+                // Build a combined prompt: inject history context as a text prefix,
+                // then include all content items from the current prompt.
+                val combinedPrompt = buildCombinedPrompt(prompt)
+
                 val conversation = activeEngine.createConversation()
                 try {
-                    // Replay preceding exchanges so the model has short-term context
-                    for ((historyPrompt, _) in conversationHistory) {
-                        conversation.sendMessage(historyPrompt)
-                    }
-
-                    // Send the current prompt
-                    val response = conversation.sendMessage(prompt)
+                    val response = conversation.sendMessage(combinedPrompt)
                     
                     // Extract text from the response message parts
                     val responseText = response.contents.contents
@@ -204,9 +204,9 @@ class GemmaEngineWrapper private constructor(
                         .joinToString("") { it.text }
                         .trim()
 
-                    // Update rolling history
+                    // Update rolling history with the transcription result
                     if (responseText.isNotEmpty()) {
-                        conversationHistory.addLast(prompt to responseText)
+                        conversationHistory.addLast(responseText)
                         while (conversationHistory.size > MAX_HISTORY_SIZE) {
                             conversationHistory.removeFirst()
                         }
@@ -221,6 +221,35 @@ class GemmaEngineWrapper private constructor(
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * Builds a combined prompt that prepends recent transcription history as text context
+     * before the current prompt's content items.
+     *
+     * If there is no history, returns the original prompt unchanged. Otherwise, inserts
+     * a context text block before the existing content so the model can reference what
+     * was recently transcribed without re-processing prior audio.
+     *
+     * @param currentPrompt The current inference prompt containing text instructions and audio.
+     * @return A [Contents] with history context prepended, or the original if no history exists.
+     */
+    private fun buildCombinedPrompt(currentPrompt: Contents): Contents {
+        if (conversationHistory.isEmpty()) return currentPrompt
+
+        val historyContext = conversationHistory.joinToString(" ") { it }
+        // Note: Adding conversation history makes sense, but it can also break transcription for whatever reason
+//        val contextPrefix = Content.Text(
+//            "This is an ongoing conversation. Previously transcribed text included the following: \"$historyContext\"\n\n"
+//        )
+
+        // Prepend the history context before the existing prompt content items
+        val existingContents = currentPrompt.contents
+//        val combinedContents = mutableListOf<Content>(contextPrefix)
+        val combinedContents = mutableListOf<Content>()
+        combinedContents.addAll(existingContents)
+
+        return Contents.of(*combinedContents.toTypedArray())
     }
 
     /**
