@@ -127,6 +127,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        // Clear previous session's transcript before starting a new one
+        _segments.value = emptyList()
+        _interimText.value = ""
         _error.value = null
 
         // Create UnifiedAudioCaptureService with error callback
@@ -192,8 +195,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val session = createSession(currentSegments, audioFilePath, formattedDuration)
         saveSession(session)
 
-        // Reset state for next session
-        _segments.value = emptyList()
+        // Keep segments on screen until next recording starts
         _interimText.value = ""
         _isRecording.value = false
 
