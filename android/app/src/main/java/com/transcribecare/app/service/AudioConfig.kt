@@ -8,8 +8,11 @@ import android.media.MediaRecorder
  * and its consumers for consistent AudioRecord initialization.
  */
 object AudioConfig {
-    /** Sample rate in Hz for audio capture. */
-    const val SAMPLE_RATE = 44100
+    /** 
+     * Sample rate in Hz for audio capture.
+     * 16000 Hz is the standard for most speech-to-text and multimodal audio models.
+     */
+    const val SAMPLE_RATE = 16000
 
     /** Channel configuration for AudioRecord (mono input). */
     const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO

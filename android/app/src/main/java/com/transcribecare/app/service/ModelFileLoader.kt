@@ -18,6 +18,8 @@ object ModelFileLoader {
     private const val TAG = "ModelFileLoader"
     private const val MODEL_BASE_NAME = "gemma-4-E2B-it.litertlm"
     private const val BUFFER_SIZE = 8192
+    
+    private val lock = Any()
 
     /**
      * Assembles the split model parts from assets into a single file in internal storage.
@@ -30,7 +32,7 @@ object ModelFileLoader {
      * @throws IOException If reading assets or writing the output file fails.
      */
     @Throws(IOException::class)
-    fun loadModel(context: Context): File {
+    fun loadModel(context: Context): File = synchronized(lock) {
         val outputFile = File(context.filesDir, MODEL_BASE_NAME)
 
         // Find all split parts in assets matching the model base name
@@ -73,7 +75,7 @@ object ModelFileLoader {
     /**
      * Checks whether the assembled model file already exists in internal storage.
      */
-    fun isModelReady(context: Context): Boolean {
+    fun isModelReady(context: Context): Boolean = synchronized(lock) {
         val outputFile = File(context.filesDir, MODEL_BASE_NAME)
         return outputFile.exists() && outputFile.length() > 0
     }
@@ -82,7 +84,7 @@ object ModelFileLoader {
      * Deletes the assembled model file from internal storage, forcing a fresh
      * reassembly on the next [loadModel] call.
      */
-    fun clearModel(context: Context): Boolean {
+    fun clearModel(context: Context): Boolean = synchronized(lock) {
         val outputFile = File(context.filesDir, MODEL_BASE_NAME)
         return if (outputFile.exists()) {
             outputFile.delete().also { deleted ->

@@ -6,10 +6,13 @@ import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -49,13 +52,14 @@ class GemmaEngineWrapper private constructor(
 
     private var engine: Engine? = null
     private var conversation: Conversation? = null
+    private val mutex = Mutex()
 
     /**
      * Initializes the LiteRT-LM engine with the assembled model file.
      *
      * Performs model loading via [ModelFileLoader], creates an [EngineConfig] with
-     * [Backend.CPU] and the app's cache directory, initializes the engine, and
-     * creates an initial [Conversation] instance.
+     * [Backend.GPU] (falling back to CPU) and the app's cache directory,
+     * initializes the engine, and creates an initial [Conversation] instance.
      *
      * This method is safe to call from any coroutine context as it switches
      * to [Dispatchers.IO] internally.
@@ -64,47 +68,48 @@ class GemmaEngineWrapper private constructor(
      *         with the underlying exception if any step failed.
      */
     suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
-        _initState.value = InitState.Initializing
-        try {
-            // Ensure native libraries are loaded. 
-            // While the SDK usually handles this, explicit loading can help diagnose issues
-            // or fix cases where the automatic loader fails.
-            try {
-                System.loadLibrary("litertlm_jni")
-                Log.d(TAG, "Native library litertlm_jni loaded successfully")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.w(TAG, "Manual load of litertlm_jni failed: ${e.message}. The SDK may still attempt to load it.")
+        mutex.withLock {
+            val currentState = _initState.value
+            if (currentState is InitState.Ready || currentState is InitState.Initializing) {
+                return@withLock Result.success(Unit)
             }
 
-            // Assemble model file from split assets
-            val modelFile = ModelFileLoader.loadModel(context)
-            val modelPath = modelFile.absolutePath
+            _initState.value = InitState.Initializing
+            try {
+                // Assemble model file from split assets
+                val modelFile = ModelFileLoader.loadModel(context)
+                val modelPath = modelFile.absolutePath
 
-            // Create engine configuration
-            val config = EngineConfig(
-                modelPath = modelPath,
-                // Tried NPU. Saw: https://github.com/google-ai-edge/LiteRT/issues/4571
-                // Tried GPU. Saw: https://github.com/google-ai-edge/gallery/issues/557
-                backend = Backend.CPU(),
-                cacheDir = context.cacheDir.absolutePath
-            )
+                // Create engine configuration.
+                // Using GPU as the main backend can be more stable and faster for multimodal models.
+                // LiteRT-LM will fall back to CPU if GPU is unavailable or unsupported for specific ops.
+                // Explicitly setting audioBackend to CPU can help stabilize audio preprocessing.
+                val config = EngineConfig(
+                    modelPath = modelPath,
+                    backend = Backend.GPU(),
+                    audioBackend = Backend.CPU(),
+                    cacheDir = context.cacheDir.absolutePath
+                )
 
-            // Initialize the engine
-            val newEngine = Engine(config)
-            newEngine.initialize()
-            engine = newEngine
+                // Initialize the engine
+                val newEngine = Engine(config)
+                newEngine.initialize()
+                
+                // Create initial conversation before assigning to avoid race
+                val newConversation = newEngine.createConversation()
+                
+                engine = newEngine
+                conversation = newConversation
 
-            // Create initial conversation
-            conversation = newEngine.createConversation()
-
-            _initState.value = InitState.Ready
-            Log.d(TAG, "Engine initialized successfully")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            val reason = e.message ?: "Unknown initialization error"
-            _initState.value = InitState.Failed(reason)
-            Log.e(TAG, "Engine initialization failed: $reason", e)
-            Result.failure(e)
+                _initState.value = InitState.Ready
+                Log.d(TAG, "Engine initialized successfully with GPU backend and CPU audio")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                val reason = e.message ?: "Unknown initialization error"
+                _initState.value = InitState.Failed(reason)
+                Log.e(TAG, "Engine initialization failed: $reason", e)
+                Result.failure(e)
+            }
         }
     }
 
@@ -119,16 +124,32 @@ class GemmaEngineWrapper private constructor(
      *         if the conversation is unavailable or inference throws an exception.
      */
     suspend fun sendMessage(prompt: com.google.ai.edge.litertlm.Contents): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val activeConversation = conversation
-                ?: return@withContext Result.failure(
-                    IllegalStateException("No active conversation. Engine may not be initialized.")
-                )
-            val response = activeConversation.sendMessage(prompt)
-            Result.success(response.toString())
-        } catch (e: Exception) {
-            Log.e(TAG, "sendMessage failed: ${e.message}", e)
-            Result.failure(e)
+        mutex.withLock {
+            try {
+                val activeConversation = conversation
+                    ?: return@withLock Result.failure(
+                        IllegalStateException("No active conversation. Engine may not be initialized.")
+                    )
+                
+                if (_initState.value !is InitState.Ready) {
+                    return@withLock Result.failure(
+                        IllegalStateException("Engine is not in Ready state.")
+                    )
+                }
+
+                val response = activeConversation.sendMessage(prompt)
+                
+                // Extract text from the response message parts
+                val responseText = response.contents.contents
+                    .filterIsInstance<Content.Text>()
+                    .joinToString("") { it.text }
+                    .trim()
+                
+                Result.success(responseText)
+            } catch (e: Exception) {
+                Log.e(TAG, "sendMessage failed: ${e.message}", e)
+                Result.failure(e)
+            }
         }
     }
 
@@ -140,23 +161,25 @@ class GemmaEngineWrapper private constructor(
      * @return [Result.success] if a new conversation was created, or [Result.failure]
      *         if the engine is unavailable or conversation creation fails.
      */
-    fun createNewConversation(): Result<Unit> {
-        return try {
-            val activeEngine = engine
-                ?: return Result.failure(
-                    IllegalStateException("Engine is not initialized.")
-                )
-            // Close existing conversation
-            conversation?.close()
-            conversation = null
+    suspend fun createNewConversation(): Result<Unit> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            try {
+                val activeEngine = engine
+                    ?: return@withLock Result.failure(
+                        IllegalStateException("Engine is not initialized.")
+                    )
+                // Close existing conversation
+                conversation?.close()
+                conversation = null
 
-            // Create a new conversation
-            conversation = activeEngine.createConversation()
-            Log.d(TAG, "New conversation created successfully")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create new conversation: ${e.message}", e)
-            Result.failure(e)
+                // Create a new conversation
+                conversation = activeEngine.createConversation()
+                Log.d(TAG, "New conversation created successfully")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create new conversation: ${e.message}", e)
+                Result.failure(e)
+            }
         }
     }
 
@@ -167,18 +190,26 @@ class GemmaEngineWrapper private constructor(
      * After calling this method, [getInstance] will create a fresh instance.
      */
     fun release() {
-        try {
-            conversation?.close()
-            conversation = null
-            engine?.close()
-            engine = null
-            _initState.value = InitState.Uninitialized
-            Log.d(TAG, "Engine resources released")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error during release: ${e.message}", e)
-        }
         synchronized(lock) {
             instance = null
+            
+            // Release resources asynchronously. 
+            // We use a dedicated thread to ensure cleanup happens even if the app is shutting down.
+            Thread {
+                kotlin.runCatching {
+                    // We don't use mutex.withLock here because it's suspend and we're in a regular thread,
+                    // but since we nulled instance, no new calls will start.
+                    // We also check if the conversation handle is still alive before closing (via SDK internal check).
+                    conversation?.close()
+                    conversation = null
+                    engine?.close()
+                    engine = null
+                    _initState.value = InitState.Uninitialized
+                    Log.d(TAG, "Engine resources released")
+                }.onFailure { e ->
+                    Log.e(TAG, "Error during release: ${e.message}", e)
+                }
+            }.start()
         }
     }
 

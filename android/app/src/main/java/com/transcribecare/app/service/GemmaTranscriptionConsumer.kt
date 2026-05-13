@@ -30,7 +30,7 @@ class GemmaTranscriptionConsumer(
     private val onPartialResult: (text: String) -> Unit,
     private val onFinalResult: (text: String) -> Unit,
     private val onError: (message: String) -> Unit,
-    private val chunkDurationSeconds: Float = 3.0f,
+    private val chunkDurationSeconds: Float = 2.0f,
     private val coroutineScope: CoroutineScope
 ) : AudioConsumer {
 
@@ -251,6 +251,7 @@ class GemmaTranscriptionConsumer(
      */
     private fun buildPrompt(audioData: ShortArray): com.google.ai.edge.litertlm.Contents {
         val wavBytes = pcmToWav(audioData, AudioConfig.SAMPLE_RATE, AudioConfig.CHANNEL_COUNT)
+        Log.d(TAG, "Built WAV prompt: ${wavBytes.size} bytes, sampleRate=${AudioConfig.SAMPLE_RATE}")
 
         val stringPrompt = """Transcribe the following speech segment in English into English text.
 
@@ -258,9 +259,10 @@ Follow these specific instructions for formatting the answer:
 *   Only output the transcription, with no newlines.
 *   When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 3 instead of three.
 """
+        // Putting Text first as some multimodal models expect the instruction before the media.
         return com.google.ai.edge.litertlm.Contents.of(
-            com.google.ai.edge.litertlm.Content.AudioBytes(wavBytes),
-            com.google.ai.edge.litertlm.Content.Text(stringPrompt)
+            com.google.ai.edge.litertlm.Content.Text(stringPrompt),
+            com.google.ai.edge.litertlm.Content.AudioBytes(wavBytes)
         )
     }
 
