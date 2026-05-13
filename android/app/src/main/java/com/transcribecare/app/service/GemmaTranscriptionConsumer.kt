@@ -36,6 +36,14 @@ class GemmaTranscriptionConsumer(
 
     companion object {
         private const val TAG = "GemmaTranscriptionConsumer"
+
+        /**
+         * RMS amplitude threshold below which audio is considered silence.
+         * 16-bit PCM has a range of -32768 to 32767. A typical silence/noise
+         * floor sits well below 300. This threshold avoids sending quiet
+         * background noise to the model for transcription.
+         */
+        private const val SILENCE_RMS_THRESHOLD = 50
     }
 
     private var buffer: AudioChunkBuffer? = null
@@ -81,11 +89,7 @@ class GemmaTranscriptionConsumer(
             }
         }
 
-        // Provide accumulation feedback
-        if (!isInferring.get()) {
-            val duration = currentBuffer.durationSeconds()
-            onPartialResult("Listening... (${String.format("%.1f", duration)}s)")
-        }
+
     }
 
     /**
@@ -128,6 +132,10 @@ class GemmaTranscriptionConsumer(
      * Performs the actual inference: drains the buffer, encodes audio as a prompt,
      * sends it to the engine, and delivers results via callbacks.
      *
+     * Implements silence detection: if the drained audio chunk's RMS amplitude
+     * is below [SILENCE_RMS_THRESHOLD], the chunk is discarded without inference,
+     * preventing repeated transcription of silence/noise.
+     *
      * Implements conversation recovery: on failure, attempts to create a new
      * conversation and retry once. If the retry also fails, invokes [onError]
      * and ceases further inference.
@@ -146,9 +154,11 @@ class GemmaTranscriptionConsumer(
                 return
             }
 
-            // Signal that we're transcribing
-            withContext(Dispatchers.Main) {
-                onPartialResult("Transcribing...")
+            // Silence detection: skip inference if audio energy is below threshold
+            if (!isFinalFlush && isSilent(audioData)) {
+                Log.d(TAG, "Chunk is silent (RMS below threshold), skipping inference")
+                isInferring.set(false)
+                return
             }
 
             val prompt = buildPrompt(audioData)
@@ -237,6 +247,24 @@ class GemmaTranscriptionConsumer(
             Log.e(TAG, "Retry after recovery also failed. Ceasing inference.", retryResult.exceptionOrNull())
             return false
         }
+    }
+
+    /**
+     * Determines whether an audio chunk is effectively silent by computing
+     * its RMS (root mean square) amplitude and comparing against the threshold.
+     *
+     * @param audioData The PCM 16-bit samples to analyze.
+     * @return true if the audio is below the silence threshold, false otherwise.
+     */
+    private fun isSilent(audioData: ShortArray): Boolean {
+        if (audioData.isEmpty()) return true
+
+        var sumOfSquares = 0L
+        for (sample in audioData) {
+            sumOfSquares += sample.toLong() * sample.toLong()
+        }
+        val rms = Math.sqrt(sumOfSquares.toDouble() / audioData.size).toInt()
+        return rms < SILENCE_RMS_THRESHOLD
     }
 
     /**
