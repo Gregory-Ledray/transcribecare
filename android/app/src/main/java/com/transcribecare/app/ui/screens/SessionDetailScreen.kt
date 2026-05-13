@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.HorizontalDivider
@@ -31,8 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.transcribecare.app.model.RecordingSession
-import com.transcribecare.app.model.SegmentType
-import com.transcribecare.app.model.TranscriptSegment
+import com.transcribecare.app.ui.components.TranscriptText
 import com.transcribecare.app.viewmodel.SettingsViewModel
 
 /**
@@ -53,7 +50,6 @@ fun SessionDetailScreen(
 
     val titleFontSize = if (largeTextMode) 48.sp else 26.sp
     val metadataFontSize = if (largeTextMode) 44.sp else 18.sp
-    val segmentFontSize = if (largeTextMode) 44.sp else 20.sp
 
     Column(
         modifier = Modifier
@@ -76,12 +72,14 @@ fun SessionDetailScreen(
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
-        // Full transcript with all segments
-        SessionTranscriptList(
+        // Full transcript as continuous text
+        TranscriptText(
             segments = session.segments,
-            segmentFontSize = segmentFontSize,
             largeTextMode = largeTextMode,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp),
+            accessibilityLabel = "Full transcript with ${session.segments.size} segments"
         )
     }
 }
@@ -96,6 +94,10 @@ private fun SessionDetailHeader(
     metadataFontSize: androidx.compose.ui.unit.TextUnit,
     onShareClick: () -> Unit
 ) {
+    // 1.5x line height to prevent overlap when text wraps at large sizes
+    val titleLineHeight = titleFontSize * 1.5f
+    val metadataLineHeight = metadataFontSize * 1.5f
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -109,6 +111,7 @@ private fun SessionDetailHeader(
             Text(
                 text = session.title,
                 fontSize = titleFontSize,
+                lineHeight = titleLineHeight,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier
@@ -142,6 +145,7 @@ private fun SessionDetailHeader(
         Text(
             text = "${session.date} at ${session.time}",
             fontSize = metadataFontSize,
+            lineHeight = metadataLineHeight,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             modifier = Modifier.semantics {
                 contentDescription = "Date: ${session.date}, Time: ${session.time}"
@@ -154,6 +158,7 @@ private fun SessionDetailHeader(
         Text(
             text = "Duration: ${session.duration}",
             fontSize = metadataFontSize,
+            lineHeight = metadataLineHeight,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             modifier = Modifier.semantics {
                 contentDescription = "Duration: ${session.duration}"
@@ -162,69 +167,4 @@ private fun SessionDetailHeader(
     }
 }
 
-/**
- * Scrollable list displaying all transcript segments with color-coding by type.
- * Uses LazyColumn for efficient rendering of long transcripts.
- */
-@Composable
-private fun SessionTranscriptList(
-    segments: List<TranscriptSegment>,
-    segmentFontSize: androidx.compose.ui.unit.TextUnit,
-    largeTextMode: Boolean,
-    modifier: Modifier = Modifier
-) {
-    LazyColumn(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .semantics {
-                contentDescription = "Full transcript with ${segments.size} segments"
-            }
-    ) {
-        items(segments, key = { it.id }) { segment ->
-            DetailTranscriptSegmentItem(
-                segment = segment,
-                fontSize = segmentFontSize,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-    }
-}
 
-/**
- * A single transcript segment in the detail view, color-coded by type.
- *
- * - CURRENT: Primary color (most recent finalized segment)
- * - RECENT: Secondary color (previously current)
- * - PAST: Muted on-background color (older segments)
- */
-@Composable
-private fun DetailTranscriptSegmentItem(
-    segment: TranscriptSegment,
-    fontSize: androidx.compose.ui.unit.TextUnit,
-) {
-    val textColor = when (segment.type) {
-        SegmentType.CURRENT -> MaterialTheme.colorScheme.primary
-        SegmentType.RECENT -> MaterialTheme.colorScheme.secondary
-        SegmentType.PAST -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-    }
-
-    val typeLabel = when (segment.type) {
-        SegmentType.CURRENT -> "Current segment"
-        SegmentType.RECENT -> "Recent segment"
-        SegmentType.PAST -> "Past segment"
-    }
-
-    Text(
-        text = segment.text,
-        fontSize = fontSize,
-        color = textColor,
-        fontWeight = if (segment.type == SegmentType.CURRENT) FontWeight.Medium else FontWeight.Normal,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .semantics {
-                contentDescription = "$typeLabel: ${segment.text}"
-            }
-    )
-}
