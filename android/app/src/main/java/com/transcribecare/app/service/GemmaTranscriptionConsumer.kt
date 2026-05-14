@@ -14,15 +14,22 @@ import java.util.concurrent.atomic.AtomicBoolean
  * AudioConsumer implementation that performs on-device transcription using
  * the Gemma 4 E2B model via LiteRT-LM.
  *
- * Buffers raw PCM frames into time-based chunks and submits them to the
- * locally-running LLM for transcription inference. Uses mutual exclusion
- * to ensure only one inference call is in progress at a time.
+ * Buffers raw PCM frames and uses silence-based word break detection to
+ * determine when to submit audio for inference. This avoids cutting words
+ * in half at chunk boundaries by waiting for natural pauses in speech.
+ *
+ * Pause detection strategy:
+ * - Between-sentence pause (≥600ms silence): always triggers inference immediately.
+ * - After 2 seconds of audio without a 600ms pause, a within-sentence pause
+ *   (≥300ms silence) triggers inference.
+ * - After 4 seconds with no detectable pause, inference is forced to bound latency.
+ *
+ * Uses mutual exclusion to ensure only one inference call is in progress at a time.
  *
  * @param engine The [GemmaEngineWrapper] singleton for model inference.
  * @param onPartialResult Callback invoked with accumulation status or processing indicators.
  * @param onFinalResult Callback invoked with the final transcribed text from each chunk.
  * @param onError Callback invoked when an unrecoverable inference error occurs.
- * @param chunkDurationSeconds Duration threshold (in seconds) before submitting a chunk for inference.
  * @param coroutineScope Scope for launching inference coroutines.
  */
 class GemmaTranscriptionConsumer(
@@ -30,7 +37,6 @@ class GemmaTranscriptionConsumer(
     private val onPartialResult: (text: String) -> Unit,
     private val onFinalResult: (text: String) -> Unit,
     private val onError: (message: String) -> Unit,
-    private val chunkDurationSeconds: Float = 2.0f,
     private val coroutineScope: CoroutineScope
 ) : AudioConsumer {
 
@@ -44,6 +50,39 @@ class GemmaTranscriptionConsumer(
          * background noise to the model for transcription.
          */
         private const val SILENCE_RMS_THRESHOLD = 50
+
+        /**
+         * RMS amplitude threshold for detecting pauses within speech.
+         * Frames with RMS below this value are considered "silent" for
+         * the purpose of word break detection. This is slightly higher
+         * than [SILENCE_RMS_THRESHOLD] to catch softer pauses between words.
+         */
+        private const val PAUSE_RMS_THRESHOLD = 150
+
+        /**
+         * Duration in milliseconds of silence that indicates a between-sentence
+         * pause. When detected, inference is always triggered immediately.
+         */
+        private const val BETWEEN_SENTENCE_PAUSE_MS = 600L
+
+        /**
+         * Duration in milliseconds of silence that indicates a within-sentence
+         * pause (e.g., between words or phrases). Only used as a trigger after
+         * the audio chunk exceeds [SHORT_CHUNK_DURATION_MS].
+         */
+        private const val WITHIN_SENTENCE_PAUSE_MS = 300L
+
+        /**
+         * Minimum audio duration in milliseconds before within-sentence pauses
+         * (≥300ms) are considered as inference triggers.
+         */
+        private const val SHORT_CHUNK_DURATION_MS = 2000L
+
+        /**
+         * Maximum audio duration in milliseconds. If no pause is detected
+         * within this window, inference is forced to bound latency.
+         */
+        private const val MAX_CHUNK_DURATION_MS = 4000L
     }
 
     private var buffer: AudioChunkBuffer? = null
@@ -52,26 +91,60 @@ class GemmaTranscriptionConsumer(
     private val hasCeasedInference = AtomicBoolean(false)
     private var inferenceJob: Job? = null
 
+    /** Sample rate captured during [prepare], used for timing calculations. */
+    private var sampleRate: Int = AudioConfig.SAMPLE_RATE
+
+    /**
+     * Tracks the number of consecutive silent samples observed.
+     * A "silent sample" is one belonging to a frame whose RMS is below [PAUSE_RMS_THRESHOLD].
+     */
+    private var consecutiveSilentSamples: Int = 0
+
+    /**
+     * Total number of samples accumulated since the last inference trigger.
+     * Used to compute the current chunk duration for the short/max thresholds.
+     */
+    private var totalSamplesSinceLastInference: Int = 0
+
+    /**
+     * Whether a between-sentence pause (≥600ms) has been detected in the
+     * current accumulation window. Used to decide the inference trigger.
+     */
+    private var betweenSentencePauseDetected: Boolean = false
+
+    /**
+     * Whether a within-sentence pause (≥300ms) has been detected in the
+     * current accumulation window after the short chunk threshold is reached.
+     */
+    private var withinSentencePauseDetected: Boolean = false
+
     /**
      * Initializes the internal [AudioChunkBuffer] and marks the consumer as active.
      *
-     * @param sampleRate The audio sample rate in Hz (e.g., 44100).
+     * @param sampleRate The audio sample rate in Hz (e.g., 16000).
      * @param channelCount The number of audio channels (e.g., 1 for mono).
      * @param encoding The audio encoding format (e.g., AudioFormat.ENCODING_PCM_16BIT).
      */
     override fun prepare(sampleRate: Int, channelCount: Int, encoding: Int) {
+        this.sampleRate = sampleRate
         buffer = AudioChunkBuffer(sampleRate)
         isActive.set(true)
         hasCeasedInference.set(false)
+        resetPauseTracking()
         Log.d(TAG, "Prepared with sampleRate=$sampleRate, channelCount=$channelCount, encoding=$encoding")
     }
 
     /**
-     * Appends a PCM frame to the internal buffer without blocking the capture thread.
+     * Appends a PCM frame to the internal buffer and performs real-time
+     * pause detection to determine when to trigger inference.
      *
-     * When the buffer accumulates enough audio to meet the chunk duration threshold,
-     * an inference coroutine is launched (if one is not already in progress).
-     * Invokes [onPartialResult] with accumulation status feedback.
+     * The pause detection logic works as follows:
+     * 1. Compute the RMS of the incoming frame.
+     * 2. If the frame is silent (RMS < [PAUSE_RMS_THRESHOLD]), increment
+     *    the consecutive silent sample counter.
+     * 3. If the frame contains speech, reset the silent sample counter.
+     * 4. Check if the accumulated silence duration crosses pause thresholds
+     *    and trigger inference at natural word breaks.
      *
      * @param frame ShortArray containing PCM samples.
      * @param frameSize Number of valid samples in the frame.
@@ -81,15 +154,51 @@ class GemmaTranscriptionConsumer(
 
         val currentBuffer = buffer ?: return
         currentBuffer.append(frame, frameSize)
+        totalSamplesSinceLastInference += frameSize
 
-        // Check if threshold is reached and trigger inference if not already running
-        if (currentBuffer.durationSeconds() >= chunkDurationSeconds) {
+        // Compute RMS of this frame for pause detection
+        val frameRms = computeRms(frame, frameSize)
+        val isSilentFrame = frameRms < PAUSE_RMS_THRESHOLD
+
+        if (isSilentFrame) {
+            consecutiveSilentSamples += frameSize
+        } else {
+            consecutiveSilentSamples = 0
+        }
+
+        // Compute timing values
+        val silenceDurationMs = (consecutiveSilentSamples.toLong() * 1000L) / sampleRate
+        val chunkDurationMs = (totalSamplesSinceLastInference.toLong() * 1000L) / sampleRate
+
+        // Determine if we should trigger inference
+        val shouldTrigger = when {
+            // Between-sentence pause detected: always trigger
+            silenceDurationMs >= BETWEEN_SENTENCE_PAUSE_MS && totalSamplesSinceLastInference > consecutiveSilentSamples -> {
+                betweenSentencePauseDetected = true
+                Log.d(TAG, "Between-sentence pause detected (${silenceDurationMs}ms silence) at ${chunkDurationMs}ms chunk")
+                true
+            }
+            // After 2 seconds, within-sentence pause triggers inference
+            chunkDurationMs >= SHORT_CHUNK_DURATION_MS &&
+                silenceDurationMs >= WITHIN_SENTENCE_PAUSE_MS &&
+                totalSamplesSinceLastInference > consecutiveSilentSamples -> {
+                withinSentencePauseDetected = true
+                Log.d(TAG, "Within-sentence pause detected (${silenceDurationMs}ms silence) at ${chunkDurationMs}ms chunk")
+                true
+            }
+            // Hard limit: force inference after 4 seconds regardless of pauses
+            chunkDurationMs >= MAX_CHUNK_DURATION_MS -> {
+                Log.d(TAG, "Max chunk duration reached (${chunkDurationMs}ms), forcing inference")
+                true
+            }
+            else -> false
+        }
+
+        if (shouldTrigger) {
             if (!hasCeasedInference.get() && isInferring.compareAndSet(false, true)) {
                 launchInference()
             }
         }
-
-
     }
 
     /**
@@ -115,7 +224,36 @@ class GemmaTranscriptionConsumer(
         buffer = null
         inferenceJob?.cancel()
         inferenceJob = null
+        resetPauseTracking()
         Log.d(TAG, "Released")
+    }
+
+    /**
+     * Resets all pause tracking state. Called after inference is triggered
+     * and during prepare/release.
+     */
+    private fun resetPauseTracking() {
+        consecutiveSilentSamples = 0
+        totalSamplesSinceLastInference = 0
+        betweenSentencePauseDetected = false
+        withinSentencePauseDetected = false
+    }
+
+    /**
+     * Computes the RMS (root mean square) amplitude of a PCM frame.
+     *
+     * @param frame The PCM sample data.
+     * @param frameSize The number of valid samples in the frame.
+     * @return The RMS amplitude as an integer.
+     */
+    private fun computeRms(frame: ShortArray, frameSize: Int): Int {
+        if (frameSize <= 0) return 0
+        var sumOfSquares = 0L
+        for (i in 0 until frameSize) {
+            val sample = frame[i].toLong()
+            sumOfSquares += sample * sample
+        }
+        return Math.sqrt(sumOfSquares.toDouble() / frameSize).toInt()
     }
 
     /**
@@ -153,6 +291,9 @@ class GemmaTranscriptionConsumer(
                 isInferring.set(false)
                 return
             }
+
+            // Reset pause tracking after draining the buffer
+            resetPauseTracking()
 
             // Silence detection: skip inference if audio energy is below threshold
             if (!isFinalFlush && isSilent(audioData)) {
@@ -302,7 +443,7 @@ Follow these specific instructions for formatting the answer:
      * the audio format without external metadata.
      *
      * @param samples The PCM 16-bit samples.
-     * @param sampleRate The sample rate in Hz (e.g., 44100).
+     * @param sampleRate The sample rate in Hz (e.g., 16000).
      * @param channels The number of audio channels (e.g., 1 for mono).
      * @return A ByteArray containing the complete WAV file.
      */
