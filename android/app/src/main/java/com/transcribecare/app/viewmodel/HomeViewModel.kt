@@ -1,6 +1,7 @@
 package com.transcribecare.app.viewmodel
 
 import android.app.Application
+import android.os.PowerManager
 import android.os.StatFs
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -61,6 +62,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private var captureService: UnifiedAudioCaptureService? = null
     private var gemmaConsumer: GemmaTranscriptionConsumer? = null
     private var fileConsumer: FileRecordingConsumer? = null
+
+    /** Wake lock to prevent the device from sleeping during recording. */
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private var recordingStartTime: Long = 0L
 
@@ -171,6 +175,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         // Track recording start time for duration calculation
         recordingStartTime = System.currentTimeMillis()
 
+        // Acquire wake lock to prevent device from sleeping during recording
+        val powerManager = getApplication<Application>()
+            .getSystemService(Application.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "TranscribeCare::RecordingWakeLock"
+        ).apply { acquire() }
+
         _isRecording.value = true
     }
 
@@ -202,6 +214,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         // Keep segments on screen until next recording starts
         _interimText.value = ""
         _isRecording.value = false
+
+        // Release wake lock now that recording has stopped
+        wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        wakeLock = null
 
         // Clear service references
         captureService = null
@@ -312,6 +330,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         captureService = null
         gemmaConsumer = null
         fileConsumer = null
+        // Safety net: release wake lock if still held when ViewModel is destroyed
+        wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        wakeLock = null
         GemmaEngineWrapper.getInstance(getApplication()).release()
     }
 
