@@ -1,15 +1,35 @@
 # TranscribeCare
 
-An accessible healthcare transcription assistant that provides real-time speech-to-text during medical visits, with a focus on high-contrast visuals and large text for readability.
+Overcome hearing loss with real time, offline conversation transcriptions you can share with family. Great for family care coordination
+
+
 
 ## Repository Structure
 
 ```
 transcribecare/
 ├── web/        # React/Vite web application
-├── android/    # Native Android app (Kotlin + Jetpack Compose)
-└── ios/        # Native iOS app (Swift + SwiftUI)
+└── android/    # Native Android app (Kotlin + Jetpack Compose)
 ```
+
+## Android App
+
+The Android app is built with Kotlin and Jetpack Compose, targeting Android 8.0+ (API 26).
+
+### Prerequisites
+
+- Android Studio Hedgehog (2023.1.1) or later
+- JDK 17
+- Android SDK with API 34
+
+### Setup
+
+```bash
+cd android
+./gradlew assembleDebug
+```
+
+Or open the `android/` directory in Android Studio and sync Gradle.
 
 ## Web App
 
@@ -38,66 +58,6 @@ npm run dev            # Starts dev server on port 3000
 | `npm run preview` | Preview production build |
 | `npm run lint` | Type-check with `tsc --noEmit` |
 
-## Android App
-
-The Android app is built with Kotlin and Jetpack Compose, targeting Android 8.0+ (API 26).
-
-### Prerequisites
-
-- Android Studio Hedgehog (2023.1.1) or later
-- JDK 17
-- Android SDK with API 34
-
-### Setup
-
-```bash
-cd android
-./gradlew assembleDebug
-```
-
-Or open the `android/` directory in Android Studio and sync Gradle.
-
-### Key Dependencies
-
-- Jetpack Compose (UI)
-- Room (local persistence)
-- Navigation Compose (tab navigation)
-- Kotest (property-based testing)
-
-## iOS App
-
-The iOS app is built with Swift and SwiftUI, targeting iOS 16.0+.
-
-### Prerequisites
-
-- Xcode 15+
-- macOS Sonoma or later
-
-### Setup
-
-```bash
-cd ios
-open TranscribeCare.xcodeproj
-```
-
-Build and run from Xcode on a simulator or device.
-
-### Key Dependencies
-
-- SwiftUI (UI)
-- SwiftData (local persistence)
-- Speech framework (speech recognition)
-- SwiftCheck (property-based testing, via Swift Package Manager)
-
-## Core Features
-
-- Live speech-to-text transcription during medical visits
-- Audio recording with variable-speed playback (1x, 1.25x, 1.5x, 2x)
-- Session history with search
-- Family sharing via native share sheets
-- Large text accessibility mode
-- High-contrast color scheme (WCAG 4.5:1 minimum)
-
 ## License
 
-Proprietary — All rights reserved.
+MIT License
