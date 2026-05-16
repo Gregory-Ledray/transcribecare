@@ -2,7 +2,7 @@
 
 Overcome hearing loss with real time, offline conversation transcriptions you can share with family. Great for family care coordination
 
-
+Kaggle submission: TODO add link
 
 ## Repository Structure
 
