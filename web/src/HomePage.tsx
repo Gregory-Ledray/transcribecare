@@ -35,7 +35,7 @@ export default function HomePage() {
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold text-primary">TranscribeCare</Link>
           <Link
-            to="/app"
+            to="https://drive.google.com/file/d/1ssx3Ox2W2MFaa6EIAaMeYlLWMn7KGd6H/view?usp=drive_link"
             className="bg-primary text-on-primary px-5 py-2.5 rounded-lg font-semibold text-sm hover:opacity-90 transition-opacity"
           >
             Open App
@@ -70,7 +70,7 @@ export default function HomePage() {
             className="mt-10 flex flex-col sm:flex-row gap-4 justify-center"
           >
             <Link
-              to="/app"
+              to="https://drive.google.com/file/d/1ssx3Ox2W2MFaa6EIAaMeYlLWMn7KGd6H/view?usp=drive_link"
               className="bg-secondary text-on-secondary px-8 py-4 rounded-xl font-bold text-lg hover:opacity-90 transition-opacity inline-block"
             >
               Try It Now
@@ -121,7 +121,7 @@ export default function HomePage() {
             word is captured, understood, and shareable.
           </p>
           <Link
-            to="/app"
+            to="https://drive.google.com/file/d/1ssx3Ox2W2MFaa6EIAaMeYlLWMn7KGd6H/view?usp=drive_link"
             className="bg-primary text-on-primary px-8 py-4 rounded-xl font-bold text-lg hover:opacity-90 transition-opacity inline-block"
           >
             Get Started
